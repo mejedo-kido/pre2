@@ -1,0 +1,146 @@
+:root{
+  --panel:#1f1f1f; --accent:#ffd166;
+  --enemy:#ff6b6b; --player:#6bff9e;
+}
+
+/* base */
+*{box-sizing:border-box}
+body{
+  margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: radial-gradient(circle at 30% 10%, #202020 0%, #0b0b0b 60%);
+  color:#fff; text-align:center;
+}
+.container{ width:720px; max-width:96%; margin:28px auto; padding:18px; }
+h1{ margin:6px 0 12px; font-size:22px; }
+
+/* Title screen */
+.screen {
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(180deg, #070707, #000);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  z-index: 100;
+}
+
+.title {
+  font-size: 48px;
+  color: gold;
+  text-shadow: 0 0 20px gold;
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 18px;
+  color: #ddd;
+  margin: 0;
+}
+
+.title-buttons { display:flex; gap:12px; align-items:center; margin-top:8px; }
+
+.bigButton {
+  padding: 12px 36px;
+  font-size: 20px;
+  border: none;
+  background: var(--accent);
+  cursor: pointer;
+  border-radius: 10px;
+  transition: 0.12s;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+}
+.bigButton:hover { transform: scale(1.06); }
+
+.smallButton {
+  padding: 8px 14px;
+  font-size: 14px;
+  border: none;
+  background: rgba(255,255,255,0.06);
+  color: #fff;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: 0.12s;
+}
+.smallButton:hover { background: rgba(255,255,255,0.12); transform: translateY(-3px); }
+
+.bestStage { margin-top: 6px; font-size: 16px; color: #fff; }
+
+/* layout */
+#topBar{ display:flex; justify-content:space-between; align-items:center; margin:6px 4px 12px }
+#stageInfo{ font-weight:700 }
+#statInfo{ display:flex; gap:12px; align-items:center; }
+#skillInfo{ font-size:14px; opacity:0.95 }
+#thresholdInfo{ font-size:13px; opacity:0.9; background: rgba(255,255,255,0.03); padding:4px 8px; border-radius:8px; }
+
+/* hands layout */
+.hands{ display:flex; gap:48px; justify-content:center; align-items:flex-start; margin:6px 0 20px }
+.hand-wrapper{ display:flex; flex-direction:column; align-items:center; width:140px }
+
+.hand{
+  width:120px; height:120px; line-height:120px; font-size:40px; border-radius:14px;
+  background:var(--panel); cursor:pointer; transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s;
+  user-select:none; position:relative;
+}
+.hand.selectable:hover{ transform:scale(1.06) }
+.hand.selected{ background:var(--accent); color:#111; box-shadow:0 8px 22px rgba(255,209,102,0.18) }
+.hand.zero{ background:#666; color:#0f0f0f; cursor:default; box-shadow:none }
+
+/* mini bar */
+.mini-bar{ width:96px; height:9px; background:#2c2c2c; margin-top:10px; border-radius:6px; overflow:hidden }
+.mini-fill{ height:100%; width:100%; transition:width 0.28s cubic-bezier(.2,.9,.2,1) }
+.enemy-fill{ background:linear-gradient(90deg,#ff6b6b,#ff9393) }
+.player-fill{ background:linear-gradient(90deg,#6bff9e,#32d68a) }
+
+/* animations */
+.attack { animation: attackAnim 0.22s ease; transform-origin:center; }
+@keyframes attackAnim { 0%{transform:translateY(0) scale(1)} 50%{transform:translateY(-8px) scale(1.18)} 100%{transform:translateY(0) scale(1)} }
+.hit { animation: hitAnim 0.32s ease; }
+@keyframes hitAnim { 0%{transform:translateX(0)} 25%{transform:translateX(-8px)} 50%{transform:translateX(8px)} 75%{transform:translateX(-6px)} 100%{transform:translateX(0)} }
+.destroy { animation: destroyAnim 0.45s ease; }
+@keyframes destroyAnim { 0%{transform:scale(1); background:#ff6b6b} 50%{transform:scale(1.6); background:#fff;} 100%{transform:scale(1); background:#777} }
+
+/* damage popup */
+.damage{ position:absolute; left:50%; top:10%; transform:translateX(-50%); font-weight:800; color:#ff6b6b; text-shadow:0 2px 6px rgba(0,0,0,0.6); animation: popup 0.9s cubic-bezier(.2,.9,.2,1) forwards; pointer-events:none; }
+@keyframes popup { 0%{opacity:1; transform:translate(-50%,0) scale(1)} 100%{opacity:0; transform:translate(-50%,-42px) scale(0.9)} }
+
+/* flash layer */
+#flashLayer{ position:fixed; inset:0; pointer-events:none; z-index:5 }
+.flash{ animation:flashAnim 0.18s ease }
+@keyframes flashAnim { 0%{background:rgba(255,255,255,0.28)} 100%{background:transparent} }
+
+/* skill selection */
+#skillSelectArea{ margin-top:12px }
+.skill-choices{ display:flex; gap:10px; justify-content:center; margin-top:8px; flex-wrap:wrap }
+.skill-btn{ padding:8px 12px; border-radius:10px; background:#2e2e2e; color:#fff; border:1px solid rgba(255,255,255,0.04); cursor:pointer; transition: transform .08s ease, background .12s }
+.skill-btn:hover{ transform:translateY(-3px) }
+.skill-btn.chosen{ background: linear-gradient(90deg,var(--accent),#ffb86b); color:#111; border-color: rgba(0,0,0,0.1) }
+
+/* owned / unlocked lists */
+#skillInventory{ margin-top:12px; text-align:left }
+#equippedList, #unlockedList{ display:flex; gap:10px; flex-wrap:wrap }
+.skill-card{ padding:8px 10px; border-radius:8px; background:#222; border:1px solid rgba(255,255,255,0.03); min-width:180px; display:flex; justify-content:space-between; align-items:center }
+.skill-passive{ opacity:0.95; font-weight:600 }
+.skill-active button{ padding:6px 10px; border-radius:8px; border:none; background:#4a90e2; color:white; cursor:pointer }
+.skill-active button.used{ background:#666; cursor:default; opacity:0.7 }
+
+/* boss ability area */
+#bossAbilityArea{ text-align:center; }
+
+/* minor */
+hr{ border:none; height:1px; background:linear-gradient(90deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); margin:12px 0 }
+#message{ margin-top:12px; min-height:30px; font-weight:600; text-align:center }
+
+/* rarity badges / borders */
+.rarity-common { border:2px solid rgba(255,255,255,0.06); }
+.rarity-rare   { border:2px solid #4aa3ff; box-shadow: 0 6px 18px rgba(74,163,255,0.08); }
+.rarity-epic   { border:2px solid #c26bff; box-shadow: 0 10px 28px rgba(194,107,255,0.12); }
+
+/* responsiveness */
+@media (max-width:520px){
+  .hands{ gap:18px }
+  .hand{ width:92px; height:92px; line-height:92px; font-size:30px }
+  .hand-wrapper{ width:110px }
+  .container{ padding:12px }
+}

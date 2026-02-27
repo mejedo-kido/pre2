@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>Finger Dungeon Web — SE Enabled</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ===== Title Screen ===== -->
+  <div id="titleScreen" class="screen">
+    <h1 class="title">Finger Dungeon</h1>
+    <h2 class="subtitle">Web Edition</h2>
+
+    <div class="title-buttons">
+      <button id="startButton" class="bigButton">START</button>
+      <button id="resetButton" class="smallButton">リセット（スキル初期化）</button>
+    </div>
+
+    <div class="bestStage">
+      Best Stage : <span id="bestStageValue">1</span>
+    </div>
+  </div>
+
+  <!-- ===== Rule Screen (title -> rule -> start) ===== -->
+  <div id="ruleScreen" class="screen" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:22px;">
+    <h2 style="margin:0">📝 ゲームルール</h2>
+    <div style="max-width:520px; text-align:left; line-height:1.5; color:#ddd; margin-top:12px;">
+      <ul style="text-align:left; padding-left:18px;">
+        <li>各手の数値を使って相手の手に加算して攻撃します。</li>
+        <li>相手の手が閾値（通常は5）以上になるとその手は破壊（0）されます。ボス報酬で閾値を増やせます。</li>
+        <li>プレイヤー・敵ともに左右2つの手を持ちます。自分の両手が0だと敗北、敵の両手が0だと勝利です。</li>
+        <li>ステージ開始時、プレイヤーの手は全回復します。敵の手はステージで増えません（固定1〜2）。</li>
+        <li>スキルは「パッシブ / アクティブ / ターン / イベント / 妨害 / バフ / カウンター」等があります。</li>
+        <li>ステージごとにスキルを装備（最大数）し、勝利でスキルをアンロック／強化できます。</li>
+        <li>敵もスキルを持ち、戦闘中に使用します（画面に表示されます）。</li>
+      </ul>
+    </div>
+
+    <div style="display:flex; gap:10px; margin-top:8px;">
+      <button id="ruleBackButton" class="smallButton">タイトルに戻る</button>
+      <button id="ruleNextButton" class="bigButton">ルールを確認した！ゲーム開始</button>
+    </div>
+  </div>
+
+  <!-- flash layer for effects -->
+  <div id="flashLayer"></div>
+
+  <div class="container">
+    <h1>Finger Dungeon Web</h1>
+
+    <div id="topBar">
+      <div id="stageInfo">Stage 1</div>
+      <div id="statInfo">
+        <span id="skillInfo">Equipped: —</span>
+        <span id="thresholdInfo" class="meta">Threshold: 5</span>
+      </div>
+    </div>
+
+    <!-- ENEMY -->
+    <div class="side enemy">
+      <h2>ENEMY</h2>
+      <div class="hands">
+        <div class="hand-wrapper">
+          <div class="hand" id="enemy-left"></div>
+          <div class="mini-bar"><div id="enemy-left-bar" class="mini-fill enemy-fill"></div></div>
+        </div>
+        <div class="hand-wrapper">
+          <div class="hand" id="enemy-right"></div>
+          <div class="mini-bar"><div id="enemy-right-bar" class="mini-fill enemy-fill"></div></div>
+        </div>
+
+        <!-- 第3の手（ボス能力で出現） -->
+        <div class="hand-wrapper" id="enemy-third-wrapper" style="display:none;">
+          <div class="hand" id="enemy-third"></div>
+          <div class="mini-bar"><div id="enemy-third-bar" class="mini-fill enemy-fill"></div></div>
+        </div>
+      </div>
+
+      <!-- 敵スキル表示エリア -->
+      <div id="enemySkillArea" style="margin-top:8px; font-size:14px; color:#ff9e9e; min-height:22px; opacity:0.95;">
+        敵スキル: —
+      </div>
+
+      <!-- ボス専用能力表示エリア（任意） -->
+      <div id="bossAbilityArea" style="margin-top:6px; font-size:13px; color:#ffd166; min-height:18px; opacity:0.95;"></div>
+    </div>
+
+    <hr />
+
+    <!-- PLAYER -->
+    <div class="side player">
+      <h2>PLAYER</h2>
+      <div class="hands">
+        <div class="hand-wrapper">
+          <div class="hand selectable" id="player-left"></div>
+          <div class="mini-bar"><div id="player-left-bar" class="mini-fill player-fill"></div></div>
+        </div>
+        <div class="hand-wrapper">
+          <div class="hand selectable" id="player-right"></div>
+          <div class="mini-bar"><div id="player-right-bar" class="mini-fill player-fill"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="skillSelectArea"></div>
+
+    <div id="skillInventory">
+      <h3>Equipped (this stage)</h3>
+      <div id="equippedList" class="skill-choices"></div>
+
+      <h3>Unlocked (permanent)</h3>
+      <div id="unlockedList" class="skill-choices"></div>
+    </div>
+
+    <div id="message"></div>
+  </div>
+
+  <script src="game.js"></script>
+  <script>
+    // small helper: show/hide enemy third wrapper based on JS state (if game.js sets gameState.enemyHasThirdHand)
+    // game.js already guards missing DOM elements; this is just a nicety to keep UI synced when game toggles third hand.
+    // game.js sets gameState.enemyHasThirdHand; call this periodically or after updateUI as desired.
+    (function(){
+      // observe a small interval to toggle display when third hand appears — harmless and lightweight.
+      setInterval(()=> {
+        try {
+          const wrapper = document.getElementById('enemy-third-wrapper');
+          if(!wrapper) return;
+          const fd = window.__FD && window.__FD.state;
+          if(fd && fd.enemyHasThirdHand) wrapper.style.display = 'flex';
+          else wrapper.style.display = 'none';
+        } catch(e){}
+      }, 250);
+    })();
+  </script>
+</body>
+</html>
