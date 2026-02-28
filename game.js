@@ -5,8 +5,8 @@ const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
 const SKILL_LEVEL_CAP = { power: 2 };
-const SKILL_LEVEL_CAP = { possession: 1 };
-const SKILL_LEVEL_CAP = { selfSplit: 1 };
+SKILL_LEVEL_CAP.possession = 1;
+SKILL_LEVEL_CAP.selfSplit = 1;
 const HARD_CAP = 99;
 
 /* ---------- SKILL POOL ---------- */
@@ -1682,5 +1682,6 @@ window.__FD = {
   assignBossAbility,
   debug_getDestroyThreshold: getDestroyThreshold
 };
+
 
 
