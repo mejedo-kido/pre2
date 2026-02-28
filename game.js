@@ -5,6 +5,8 @@ const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
 const SKILL_LEVEL_CAP = { power: 2 };
+const SKILL_LEVEL_CAP = { possession: 1 };
+const SKILL_LEVEL_CAP = { selfSplit: 1 };
 const HARD_CAP = 99;
 
 /* ---------- SKILL POOL ---------- */
@@ -14,7 +16,7 @@ const SKILL_POOL = [
   { id:'berserk',   type:'passive', baseDesc:'自分の手が4のとき攻撃 +level (×2)', name:'⚡ バーサーク',   rarity:'common'},
   { id:'regen',     type:'turn',    baseDesc:'敵ターン後に自分のランダムな手 -1 ×level', name:'💚 リジェネ', rarity:'common'},
   { id:'double',    type:'active',  baseDesc:'次の攻撃が (1 + level) 倍',          name:'⛏ ダブルストライク', rarity:'epic'},
-  { id:'heal',      type:'active',  baseDesc:'自分の手を - (1 + level)',          name:'✨ ヒール（自傷）', rarity:'rare'  },
+  { id:'heal',      type:'active',  baseDesc:'自分の手を - (1 + level)',          name:'✨ ヒール', rarity:'rare'  },
   { id:'pierce',    type:'passive', baseDesc:'破壊閾値を -level（最小2）',        name:'🔩 ピアス',       rarity:'epic'  },
   { id:'chain',     type:'combo',   baseDesc:'敵手を破壊した次の攻撃 +level',    name:'🔗 チェイン',     rarity:'common'},
   { id:'fortify',   type:'turn',    baseDesc:'自分の防御+1 for 2 turns ×level',  name:'🏰 フォーティファイ', rarity:'rare'},
@@ -22,6 +24,10 @@ const SKILL_POOL = [
   { id:'disrupt',   type:'active',  baseDesc:'敵の手を -(1+level)（直接減少、最小1）', name:'🪓 ディスラプト', rarity:'common'},
   { id:'teamPower', type:'turn',    baseDesc:'味方全体の攻撃 +level（2*levelターン）', name:'🌟 チームパワー', rarity:'rare'},
   { id:'counter',   type:'event',   baseDesc:'攻撃を受けた時、相手の手を +level して反撃', name:'↺ カウンター', rarity:'common'}
+  { id:'overheat', type:'active', baseDesc:'自身の手 +3、シールド+level（2ターン）', name:'🔥 オーバーヒート', rarity:'rare' },
+  { id:'pump', type:'active', baseDesc:'自身の手 +level', name:'💪 パンプアップ', rarity:'common' },
+  { id:'possession', type:'passive', baseDesc:'戦闘開始時：左手破壊、全能力が倍化', name:'👁 ポゼッション', rarity:'epic' },
+  { id:'selfSplit', type:'active', baseDesc:'片手のみ生存かつ2以上で分裂', name:'✂ 分割', rarity:'common' },
 ];
 
 /* ---------- BOSS ABILITIES ---------- */
