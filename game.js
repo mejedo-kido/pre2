@@ -5,8 +5,6 @@ const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
 const SKILL_LEVEL_CAP = { power: 2 };
-SKILL_LEVEL_CAP.possession = 1;
-SKILL_LEVEL_CAP.selfSplit = 1;
 const HARD_CAP = 99;
 
 /* ---------- SKILL POOL ---------- */
@@ -16,7 +14,7 @@ const SKILL_POOL = [
   { id:'berserk',   type:'passive', baseDesc:'自分の手が4のとき攻撃 +level (×2)', name:'⚡ バーサーク',   rarity:'common'},
   { id:'regen',     type:'turn',    baseDesc:'敵ターン後に自分のランダムな手 -1 ×level', name:'💚 リジェネ', rarity:'common'},
   { id:'double',    type:'active',  baseDesc:'次の攻撃が (1 + level) 倍',          name:'⛏ ダブルストライク', rarity:'epic'},
-  { id:'heal',      type:'active',  baseDesc:'自分の手を - (1 + level)',          name:'✨ ヒール', rarity:'rare'  },
+  { id:'heal',      type:'active',  baseDesc:'自分の手を - (1 + level)',          name:'✨ ヒール（自傷）', rarity:'rare'  },
   { id:'pierce',    type:'passive', baseDesc:'破壊閾値を -level（最小2）',        name:'🔩 ピアス',       rarity:'epic'  },
   { id:'chain',     type:'combo',   baseDesc:'敵手を破壊した次の攻撃 +level',    name:'🔗 チェイン',     rarity:'common'},
   { id:'fortify',   type:'turn',    baseDesc:'自分の防御+1 for 2 turns ×level',  name:'🏰 フォーティファイ', rarity:'rare'},
@@ -24,10 +22,6 @@ const SKILL_POOL = [
   { id:'disrupt',   type:'active',  baseDesc:'敵の手を -(1+level)（直接減少、最小1）', name:'🪓 ディスラプト', rarity:'common'},
   { id:'teamPower', type:'turn',    baseDesc:'味方全体の攻撃 +level（2*levelターン）', name:'🌟 チームパワー', rarity:'rare'},
   { id:'counter',   type:'event',   baseDesc:'攻撃を受けた時、相手の手を +level して反撃', name:'↺ カウンター', rarity:'common'}
-  { id:'overheat', type:'active', baseDesc:'自身の手 +3、シールド+level（2ターン）', name:'🔥 オーバーヒート', rarity:'rare' },
-  { id:'pump', type:'active', baseDesc:'自身の手 +level', name:'💪 パンプアップ', rarity:'common' },
-  { id:'possession', type:'passive', baseDesc:'戦闘開始時：左手破壊、全能力が倍化', name:'👁 ポゼッション', rarity:'epic' },
-  { id:'selfSplit', type:'active', baseDesc:'片手のみ生存かつ2以上で分裂', name:'✂ 分割', rarity:'common' },
 ];
 
 /* ---------- BOSS ABILITIES ---------- */
@@ -143,12 +137,6 @@ const gameState = {
     baseAttack: 0,
     baseDefense: 0
   },
-  // battle倍率管理を追加
-  battleModifiers: {
-  playerThresholdMult: 1,
-  playerAttackMult: 1,
-  playerDefenseMult: 1
-　},
   inBossReward: false,
   bossAbility: null,
   bossTurnCount: 0,
@@ -157,6 +145,9 @@ const gameState = {
   bossEnemyThresholdBonus: 0
 };
 
+let selectedHand = null;
+let equipTemp = [];
+let _overlayEl = null;
 
 /* ---------- DOM ---------- */
 const titleScreen = document.getElementById('titleScreen');
@@ -307,7 +298,6 @@ function computeDefenseForTarget(targetIsEnemy){
     (gameState.equippedSkills || []).forEach(s => { if(s.id === 'guard') reduction += s.level; });
     (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.payload.type === 'guardBoost') reduction += tb.payload.value; });
   }
-  reduction = reduction * (gameState.battleModifiers?.playerDefenseMult || 1);
   return reduction;
 }
 
@@ -404,7 +394,7 @@ function startBattle(){
   gameState.bossAbility = null;
   gameState.bossTurnCount = 0;
   gameState.enemyHasThirdHand = false;
-　applyBattleStartSkills();
+
   equipTemp = [];
   selectedHand = null;
   gameState.pendingActiveUse = null;
@@ -425,21 +415,7 @@ function startBattle(){
 
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
-　function applyBattleStartSkills(){
-  if(hasEquipped('possession')){
-    gameState.player.left = 0;
 
-    gameState.battleModifiers.playerThresholdMult = 2;
-    gameState.battleModifiers.playerAttackMult = 2;
-    gameState.battleModifiers.playerDefenseMult = 2;
-
-    messageArea.textContent = '👁 ポゼッション発動！能力が倍化';
-  } else {
-    gameState.battleModifiers.playerThresholdMult = 1;
-    gameState.battleModifiers.playerAttackMult = 1;
-    gameState.battleModifiers.playerDefenseMult = 1;
-  }
-}
   if(gameState.isBoss){
     assignBossAbility();
   }
@@ -565,39 +541,6 @@ function renderEquipped(){
         } else if(s.id === 'heal'){
           gameState.pendingActiveUse = { id: 'heal', idx };
           messageArea.textContent = 'ヒール使用（自傷）：自分の手を選んでください';
-          else if(s.id === 'overheat'){
-  gameState.pendingActiveUse = { id:'overheat', idx };
-  messageArea.textContent = '強化する自分の手を選んでください';
-}
-else if(s.id === 'pump'){
-  gameState.pendingActiveUse = { id:'pump', idx };
-  messageArea.textContent = '強化する自分の手を選んでください';
-}
-else if(s.id === 'selfSplit'){
-  if(sk.used) return;
-  const alive = ['left','right'].filter(k=>toNum(gameState.player[k])>0);
-  if(alive.length !== 1){
-    messageArea.textContent = '片手のみ生存時に使用可能';
-    return;
-  }
-  const side = alive[0];
-  const val = toNum(gameState.player[side]);
-  if(val < 2){
-    messageArea.textContent = '2以上必要';
-    return;
-  }
-
-  const half1 = Math.floor(val/2);
-  const half2 = Math.ceil(val/2);
-
-  gameState.player.left = half1;
-  gameState.player.right = half2;
-
-  sk.used = true;
-  messageArea.textContent = '✂ 分裂した！';
-  updateUI();
-  renderEquipped();
-}
         } else if(s.id === 'disrupt'){
           gameState.pendingActiveUse = { id: 'disrupt', idx };
           messageArea.textContent = 'ディスラプト使用：敵の手を選んでください';
@@ -804,7 +747,6 @@ function tickEnemyTurnBuffs(){
 function computePlayerAttackBonus(handKey){
   let bonus = 0;
   (gameState.equippedSkills || []).forEach(s => {
-    bonus = bonus * (gameState.battleModifiers?.playerAttackMult || 1);
     if(s.type !== 'passive') return;
     if(s.id === 'power') bonus += s.level;
     if(s.id === 'berserk' && toNum(gameState.player[handKey]) === 4) bonus += s.level * 2;
@@ -846,9 +788,7 @@ function getDestroyThreshold(attackerIsPlayer = true){
   let thresholdRaw = targetIsEnemy
     ? (Number.isFinite(Number(gameState.baseStats.enemyThreshold)) ? Number(gameState.baseStats.enemyThreshold) : 5)
     : (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? Number(gameState.baseStats.playerThreshold) : 5);
-if(!targetIsEnemy){
-  threshold = threshold * (gameState.battleModifiers?.playerThresholdMult || 1);
-}
+
   // add boss temporary bonus only for enemy target
   if(targetIsEnemy) thresholdRaw += (gameState.bossEnemyThresholdBonus || 0);
 
@@ -897,26 +837,6 @@ function applyPendingActiveOnPlayer(side){
   const sk = gameState.equippedSkills[pending.idx];
   if(!sk || sk.used){ gameState.pendingActiveUse = null; messageArea.textContent = 'そのスキルは使用できません'; return; }
 
-  if(pending.id === 'overheat'){
-  const level = sk.level;
-  const cur = toNum(gameState.player[side]);
-  gameState.player[side] = Math.min(HARD_CAP, cur + 3);
-
-  applyTurnBuff('fortify', level, 2);
-
-  sk.used = true;
-  gameState.pendingActiveUse = null;
-  messageArea.textContent = `🔥 オーバーヒート発動！+3 & 防御+${level}`;
-}
-if(pending.id === 'pump'){
-  const level = sk.level;
-  const cur = toNum(gameState.player[side]);
-  gameState.player[side] = Math.min(HARD_CAP, cur + level);
-
-  sk.used = true;
-  gameState.pendingActiveUse = null;
-  messageArea.textContent = `💪 パンプアップ！+${level}`;
-}
   if(pending.id === 'heal'){
     const amount = 1 + sk.level;
     playSE('skill', 0.7);
@@ -1682,6 +1602,3 @@ window.__FD = {
   assignBossAbility,
   debug_getDestroyThreshold: getDestroyThreshold
 };
-
-
-
