@@ -143,6 +143,12 @@ const gameState = {
     baseAttack: 0,
     baseDefense: 0
   },
+  // battle倍率管理を追加
+  battleModifiers: {
+  playerThresholdMult: 1,
+  playerAttackMult: 1,
+  playerDefenseMult: 1
+　},
   inBossReward: false,
   bossAbility: null,
   bossTurnCount: 0,
@@ -151,9 +157,6 @@ const gameState = {
   bossEnemyThresholdBonus: 0
 };
 
-let selectedHand = null;
-let equipTemp = [];
-let _overlayEl = null;
 
 /* ---------- DOM ---------- */
 const titleScreen = document.getElementById('titleScreen');
@@ -1608,3 +1611,4 @@ window.__FD = {
   assignBossAbility,
   debug_getDestroyThreshold: getDestroyThreshold
 };
+
