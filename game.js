@@ -1,10 +1,18 @@
-/* game.js — 差し替え用 完全版（転生 mod -> 指の最大値 / fortress 持ち越し修正） */
+/* game.js — 完全版（統合）
+   - possession 発動修正（装備確定後に確実発動）
+   - reincarnation: 破壊 -> attempted % maxFinger で復活（mod=0なら破壊のまま）
+   - fortress (超耐久): 閾値 ×2 に変更
+   - game clear / clear screen / endless mode
+   - stage12 から boss 能力 2つ
+   - powerLevel（能力上昇値）: endless で毎ステージ+1、ランダムに enemy.baseThreshold/baseAttack/baseDefense に割振
+   - retire button (各ステージに表示)
+*/
 
 const STORAGE_KEY = 'fd_unlocked_skills_v2';
 const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
-const SKILL_LEVEL_CAP = { power: 2 };
+const SKILL_LEVEL_CAP = { power: 2, possession: 1, split: 1 }; // possession / split は Lv1限定
 const HARD_CAP = 99;
 
 /* ---------- SKILL POOL ---------- */
@@ -21,7 +29,13 @@ const SKILL_POOL = [
   { id:'revenge',   type:'event',   baseDesc:'自分の手が0になったら即ヒール +level', name:'🔥 リベンジ', rarity:'rare'},
   { id:'disrupt',   type:'active',  baseDesc:'敵の手を -(1+level)（直接減少、最小1）', name:'🪓 ディスラプト', rarity:'common'},
   { id:'teamPower', type:'turn',    baseDesc:'味方全体の攻撃 +level（2*levelターン）', name:'🌟 チームパワー', rarity:'rare'},
-  { id:'counter',   type:'event',   baseDesc:'攻撃を受けた時、相手の手を +level して反撃', name:'↺ カウンター', rarity:'common'}
+  { id:'counter',   type:'event',   baseDesc:'攻撃を受けた時、相手の手を +level して反撃', name:'↺ カウンター', rarity:'common'},
+
+  // 新規追加スキル
+  { id:'overheat',  type:'active',  baseDesc:'自身の手 +3、さらにシールド +level', name:'🔥 オーバーヒート', rarity:'rare'},
+  { id:'pumpUp',    type:'active',  baseDesc:'自身の手 +level',                  name:'💪 パンプアップ', rarity:'common'},
+  { id:'possession',type:'passive', baseDesc:'バトル開始時: 左手0。閾値/基礎攻防を×2（バトル中）', name:'🕯 ポゼッション', rarity:'epic'},
+  { id:'split',     type:'active',  baseDesc:'片手のみ生存かつ値≥2の時、その手を半分に分割して両手にする', name:'✂ 分割', rarity:'common'}
 ];
 
 /* ---------- BOSS ABILITIES ---------- */
@@ -29,29 +43,19 @@ const BOSS_ABILITIES = [
   {
     id: 'reincarnation',
     name: '♻ 転生',
-    desc: '破壊時に (破壊直前値 % 指の最大値) で復活（mod=0 の場合は破壊）',
-    onBeforeDestroy(side, attemptedValue){
-      // side: 'left'|'right'|'third' (対象が敵の手)
-      // determine target's base threshold (対象側の「指の最大値」) — use baseStats + boss一時ボーナス
-      const targetIsEnemy = true; // this boss ability is for enemy's own hands; it's used when enemy hand would be destroyed
-      let thresholdRaw = targetIsEnemy
-        ? (Number.isFinite(Number(gameState.baseStats.enemyThreshold)) ? Number(gameState.baseStats.enemyThreshold) : 5)
-        : (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? Number(gameState.baseStats.playerThreshold) : 5);
-      // include boss temporary bonus for enemy if present
-      if(targetIsEnemy) thresholdRaw += (gameState.bossEnemyThresholdBonus || 0);
-
-      if(!Number.isFinite(thresholdRaw) || thresholdRaw <= 1) thresholdRaw = 5; // safety
-
-      const mod = attemptedValue % thresholdRaw;
-      if(mod !== 0){
-        // revive to mod
-        gameState.enemy[side] = mod;
-        const el = hands[ side === 'left' ? 'enemyLeft' : (side === 'right' ? 'enemyRight' : 'enemyThird') ];
-        if(el) showPopupText(el, `復活 ${mod}`, '#ffd166');
-        messageArea.textContent = `ボスの ${this.name} が発動！手が ${mod} に復活`;
-        return true; // canceled destruction (handled)
-      }
-      return false; // proceed with destruction
+    desc: '一度破壊された後、(破壊直前値 % 指の最大値) で復活（mod=0 の場合は破壊のまま）',
+    // onHandDestroyed: called AFTER hand was set to 0 with attemptedValue param
+    onHandDestroyed(side, attemptedValue){
+      try {
+        const maxFinger = getMaxFingerForEnemy();
+        let mod = attemptedValue % maxFinger;
+        if(mod !== 0){
+          gameState.enemy[side] = mod;
+          const el = hands[ side === 'left' ? 'enemyLeft' : (side === 'right' ? 'enemyRight' : 'enemyThird') ];
+          if(el) showPopupText(el, `復活 ${mod}`, '#ffd166');
+          messageArea.textContent = `ボスの ${this.name} が発動！手が ${mod} に復活`;
+        } // mod === 0 -> remain destroyed
+      } catch(e){}
     }
   },
   {
@@ -88,10 +92,9 @@ const BOSS_ABILITIES = [
   {
     id: 'fortress',
     name: '🛡 超耐久',
-    desc: '敵の破壊閾値が +5 される（ボス戦中のみ有効）',
+    desc: '敵の破壊閾値が ×2 される（ボス戦中のみ有効）',
     apply(){
-      // formerly modified baseStats.enemyThreshold permanently -> now use bossEnemyThresholdBonus (temporary)
-      gameState.bossEnemyThresholdBonus = (gameState.bossEnemyThresholdBonus || 0) + 5;
+      gameState.bossEnemyThresholdMultiplier = (gameState.bossEnemyThresholdMultiplier || 1) * 2;
     }
   },
   {
@@ -115,10 +118,13 @@ const BOSS_ABILITIES = [
 /* ---------- game state ---------- */
 const gameState = {
   stage: 1,
+  maxStage: 12,
   isBoss: false,
   floor: 1,
   player: { left: 1, right: 1 },
   enemy: { left: 1, right: 1 },
+  // per-battle enemy base stats (will be reset each startBattle)
+  enemyBase: { baseAttack: 0, baseDefense: 0, baseThreshold: 5 },
   playerTurn: true,
   unlockedSkills: [],
   equippedSkills: [],
@@ -135,14 +141,35 @@ const gameState = {
     playerThreshold: 5,
     enemyThreshold: 5,
     baseAttack: 0,
-    baseDefense: 0
+    baseDefense: 0,
+    maxFinger: 5 // 指の最大値（将来可変）
   },
   inBossReward: false,
   bossAbility: null,
   bossTurnCount: 0,
   enemyHasThirdHand: false,
-  // 新: ボス戦中のみ有効な敵閾値ボーナス（fortress 用）
-  bossEnemyThresholdBonus: 0
+  // boss 用閾値倍率（1がデフォルト）
+  bossEnemyThresholdMultiplier: 1,
+
+  // player battle modifiers (possession etc.)
+  playerBattleModifiers: {
+    thresholdMultiplier: 1,
+    attackMultiplier: 1,
+    defenseMultiplier: 1
+  },
+
+  // player shield (overheat)
+  playerShield: 0,
+
+  // awaiting equip: startBattle sets to true -> showEquipSelection -> commitEquips applies start-passives
+  awaitingEquip: false,
+
+  // endless / clear state
+  isEndless: false,
+  isGameClear: false,
+
+  // ability growth in endless
+  powerLevel: 0
 };
 
 let selectedHand = null;
@@ -170,6 +197,10 @@ const flashLayer = document.getElementById('flashLayer');
 const enemySkillArea = document.getElementById('enemySkillArea');
 const bossAbilityArea = document.getElementById('bossAbilityArea');
 
+const clearScreen = document.getElementById('clearScreen');
+const endlessButton = document.getElementById('endlessButton');
+const backToTitleButton = document.getElementById('backToTitleButton');
+
 const hands = {
   playerLeft: document.getElementById('player-left'),
   playerRight: document.getElementById('player-right'),
@@ -185,6 +216,25 @@ const bars = {
   enemyRight: document.getElementById('enemy-right-bar'),
   enemyThird: document.getElementById('enemy-third-bar')
 };
+
+/* add retire button to topBar if not present */
+(function ensureRetireButton(){
+  try {
+    if(!document.getElementById('retireButton')){
+      const topBar = document.getElementById('topBar');
+      if(topBar){
+        const btn = document.createElement('button');
+        btn.id = 'retireButton';
+        btn.className = 'smallButton';
+        btn.textContent = 'リタイア';
+        btn.style.marginLeft = '8px';
+        topBar.appendChild(btn);
+      }
+    }
+  } catch(e){}
+})();
+
+const retireButton = document.getElementById('retireButton');
 
 /* ---------- SE ---------- */
 const SE = {
@@ -237,10 +287,12 @@ function resetGame(){
   try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
   seedInitialUnlocks();
 
+  // reset progression & states
   gameState.stage = 1;
   gameState.isBoss = false;
   gameState.player = { left:1, right:1 };
   gameState.enemy = { left:1, right:1 };
+  gameState.enemyBase = { baseAttack:0, baseDefense:0, baseThreshold: gameState.baseStats.enemyThreshold || 5 };
   gameState.playerTurn = true;
   gameState.pendingActiveUse = null;
   gameState.doubleMultiplier = 1;
@@ -249,12 +301,20 @@ function resetGame(){
   gameState.enemySkills = [];
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
-  gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0 };
+  gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.inBossReward = false;
   gameState.bossAbility = null;
   gameState.bossTurnCount = 0;
   gameState.enemyHasThirdHand = false;
-  gameState.bossEnemyThresholdBonus = 0;
+  gameState.bossEnemyThresholdMultiplier = 1;
+  gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
+  gameState.playerShield = 0;
+  gameState.awaitingEquip = false;
+  gameState.isEndless = false;
+  gameState.isGameClear = false;
+  gameState.powerLevel = 0;
+
+  gameState.bestStage = loadBest();
 
   selectedHand = null;
   equipTemp = [];
@@ -349,15 +409,27 @@ function initGame(){
   if(hands.enemyRight) hands.enemyRight.onclick = () => clickEnemyHand('right');
   if(hands.enemyThird) hands.enemyThird.onclick = () => clickEnemyHand('third');
 
+  if(retireButton) retireButton.onclick = () => handleRetire();
+  if(endlessButton) endlessButton.onclick = () => handleEndlessFromClear();
+  if(backToTitleButton) backToTitleButton.onclick = () => handleBackToTitleFromClear();
+
   setupHoverHandlers();
 }
 
 function showTitle(){ gameState.inTitle = true; if(titleScreen) titleScreen.style.display = 'flex'; if(bestStageValue) bestStageValue.textContent = gameState.bestStage; }
 function hideTitle(){ gameState.inTitle = false; if(titleScreen) titleScreen.style.display = 'none'; }
 
+/* ---------- helpers for max finger ---------- */
+function getMaxFingerForEnemy(){
+  return (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5;
+}
+function getMaxFingerForPlayer(){
+  return (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5;
+}
+
 /* ---------- start / stage flow ---------- */
 function startGame(){
-  gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0 };
+  gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.inBossReward = false;
 
   gameState.stage = 1;
@@ -370,6 +442,15 @@ function startGame(){
   gameState.enemyDoubleMultiplier = 1;
   gameState.equippedSkills = [];
   gameState.combo = 0;
+
+  // reset player modifiers & shield
+  gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
+  gameState.playerShield = 0;
+  gameState.awaitingEquip = false;
+
+  gameState.isEndless = false;
+  gameState.isGameClear = false;
+  gameState.powerLevel = 0;
 
   selectedHand = null;
   equipTemp = [];
@@ -390,10 +471,14 @@ function startBattle(){
   if(gameState.inBossReward) return;
 
   // reset boss temporary values at battle start so they won't leak
-  gameState.bossEnemyThresholdBonus = 0;
+  gameState.bossEnemyThresholdMultiplier = 1;
   gameState.bossAbility = null;
   gameState.bossTurnCount = 0;
   gameState.enemyHasThirdHand = false;
+
+  // reset player temporary modifiers each battle
+  gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
+  gameState.playerShield = 0;
 
   equipTemp = [];
   selectedHand = null;
@@ -404,14 +489,19 @@ function startBattle(){
   gameState.playerTurn = true;
   gameState.combo = 0;
 
+  // set player hands
   gameState.player.left = 1;
   gameState.player.right = 1;
 
-  gameState.isBoss = (gameState.stage % 3 === 0);
-  document.body.classList.toggle('boss', gameState.isBoss);
-
+  // set enemy hands
   gameState.enemy.left = toNum(rand(1,2));
   gameState.enemy.right = toNum(rand(1,2));
+
+  // reset enemy base to defaults (important)
+  gameState.enemyBase = { baseAttack: 0, baseDefense: 0, baseThreshold: (Number.isFinite(Number(gameState.baseStats.enemyThreshold)) ? Number(gameState.baseStats.enemyThreshold) : 5) };
+
+  gameState.isBoss = (gameState.stage % 3 === 0);
+  document.body.classList.toggle('boss', gameState.isBoss);
 
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
@@ -421,6 +511,17 @@ function startBattle(){
   }
 
   assignEnemySkills();
+
+  // powerLevel increment (endless mode): increment at stage start (13 -> first endless stage will increment to 1)
+  if(gameState.isEndless){
+    gameState.powerLevel = (gameState.powerLevel || 0) + 1;
+  }
+
+  // apply powerLevel distribution to enemy base stats
+  applyPowerScalingToEnemy();
+
+  // flag to wait for equip confirmation; possession and other start-passives apply after commitEquips
+  gameState.awaitingEquip = true;
 
   updateUI();
   showEquipSelection();
@@ -440,6 +541,84 @@ function assignEnemySkills(){
   }
   gameState.enemySkills = chosen;
   updateEnemySkillUI();
+}
+
+/* ---------- assign boss ability (may be 2 if stage>=12) ---------- */
+function assignBossAbility(){
+  if(!BOSS_ABILITIES || BOSS_ABILITIES.length === 0) return;
+  const first = BOSS_ABILITIES[rand(0, BOSS_ABILITIES.length - 1)];
+  let chosen = [first];
+  if(gameState.stage >= 12){
+    // pick a second ability that's different (try several times)
+    let attempts = 6;
+    while(attempts-- > 0){
+      const sec = BOSS_ABILITIES[rand(0, BOSS_ABILITIES.length - 1)];
+      if(sec.id !== first.id){
+        chosen.push(sec);
+        break;
+      }
+    }
+    // if still only one, it's okay — keep 1
+  }
+  // If multiple, wrap into an object that applies all
+  if(chosen.length === 1){
+    gameState.bossAbility = chosen[0];
+    if(chosen[0].apply) chosen[0].apply();
+  } else {
+    // composite ability
+    gameState.bossAbility = {
+      id: 'composite',
+      name: chosen.map(c => c.name).join(' + '),
+      desc: chosen.map(c => c.desc).join(' / '),
+      // call component hooks where available
+      apply: function(){
+        chosen.forEach(c => { if(typeof c.apply === 'function') try{ c.apply(); } catch(e){} });
+      },
+      onEnemyTurnStart: function(){ chosen.forEach(c => { if(typeof c.onEnemyTurnStart === 'function') try{ c.onEnemyTurnStart(); } catch(e){} }); },
+      onPlayerTurnEnd: function(){ chosen.forEach(c => { if(typeof c.onPlayerTurnEnd === 'function') try{ c.onPlayerTurnEnd(); } catch(e){} }); },
+      onHandDestroyed: function(side, attemptedValue){ chosen.forEach(c => { if(typeof c.onHandDestroyed === 'function') try{ c.onHandDestroyed(side, attemptedValue); } catch(e){} }); }
+    };
+    gameState.bossAbility.apply();
+  }
+
+  if(gameState.enemyHasThirdHand && typeof gameState.enemy.third === 'undefined') gameState.enemy.third = 1;
+  updateUI();
+}
+
+/* ---------- apply powerLevel scaling to enemy base stats ---------- */
+function applyPowerScalingToEnemy(){
+  // reset to default base first (already done in startBattle)
+  // Distribute gameState.powerLevel points randomly among enemyBase.baseThreshold, baseAttack, baseDefense
+  const pl = Number(gameState.powerLevel || 0);
+  if(pl <= 0) return;
+  for(let i=0;i<pl;i++){
+    const r = rand(0,2);
+    if(r === 0){
+      gameState.enemyBase.baseThreshold = (gameState.enemyBase.baseThreshold || 5) + 1;
+    } else if(r === 1){
+      gameState.enemyBase.baseAttack = (gameState.enemyBase.baseAttack || 0) + 1;
+    } else {
+      gameState.enemyBase.baseDefense = (gameState.enemyBase.baseDefense || 0) + 1;
+    }
+  }
+}
+
+/* ---------- apply battle-start passives (called after commitEquips if awaitingEquip) ---------- */
+function applyBattleStartPassives(){
+  if(!gameState.awaitingEquip) return;
+  gameState.awaitingEquip = false; // 一度だけ適用
+
+  // possession: equipしていれば左手を破壊、戦闘修飾を×2
+  if(hasEquipped('possession')){
+    // apply only once
+    gameState.player.left = 0;
+    gameState.playerBattleModifiers.thresholdMultiplier = 2;
+    gameState.playerBattleModifiers.attackMultiplier = 2;
+    gameState.playerBattleModifiers.defenseMultiplier = 2;
+    messageArea.textContent = 'ポゼッションが発動：左手を失い、攻防・閾値が×2に';
+    playSE('skill', 0.6);
+    flashScreen(.14);
+  }
 }
 
 /* ---------- equip / reward UI ---------- */
@@ -509,7 +688,13 @@ function commitEquips(){
   skillSelectArea.innerHTML = '';
   messageArea.textContent = '';
   renderEquipped();
-  skillInfo.textContent = 'Equipped: ' + (gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') || '—');
+  skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
+
+  // 装備確定後にバトル開始時パッシブを適用（possession 等）
+  applyBattleStartPassives();
+
+  // UI 更新（閾値表示等が変わるため）
+  updateUI();
 }
 
 /* ---------- rendering ---------- */
@@ -533,6 +718,7 @@ function renderEquipped(){
         if(gameState.inBossReward) return;
         if(s.used) return;
         playSE('skill', 0.7);
+        // existing actives
         if(s.id === 'double'){
           s.used = true;
           gameState.doubleMultiplier = 1 + s.level;
@@ -558,6 +744,21 @@ function renderEquipped(){
           applyTurnBuff(s.id, s.level, duration);
           messageArea.textContent = `${s.name} を ${duration} ターン有効化しました`;
           renderEquipped();
+        } else {
+          // 新規アクティブスキル：overheat / pumpUp / split
+          if(s.id === 'overheat'){
+            gameState.pendingActiveUse = { id: 'overheat', idx };
+            messageArea.textContent = 'オーバーヒート使用：自分の手を選んでください（+3、シールド+Lv）';
+          } else if(s.id === 'pumpUp'){
+            gameState.pendingActiveUse = { id: 'pumpUp', idx };
+            messageArea.textContent = 'パンプアップ使用：自分の手を選んでください（+Lv）';
+          } else if(s.id === 'split'){
+            // split は片手選択で動作する（片手のみ生存でかつ値>=2 の場合のみ成功）
+            gameState.pendingActiveUse = { id: 'split', idx };
+            messageArea.textContent = '分割使用：片手のみ生存の時に、その手を選んでください（分割されます）';
+          } else {
+            messageArea.textContent = 'このタイプのスキルはまだ実装されていません';
+          }
         }
       };
       const div = document.createElement('div');
@@ -586,7 +787,7 @@ function renderUnlockedList(){
 function updateEnemySkillUI(){
   if(!enemySkillArea) return;
   if(!gameState.enemySkills || gameState.enemySkills.length === 0){
-    enemySkillArea.textContent = '敵スキル: —';
+    enemySkillArea.textContent = `敵スキル: — | PowerLv: ${gameState.powerLevel || 0}`;
     return;
   }
 
@@ -614,7 +815,7 @@ function updateEnemySkillUI(){
   }).filter(Boolean);
 
   const buffText = buffs.length ? ` | Buffs: ${buffs.join(', ')}` : '';
-  enemySkillArea.innerHTML = `敵スキル: ${parts.join(' ')}${buffText}`;
+  enemySkillArea.innerHTML = `敵スキル: ${parts.join(' ')}${buffText} | PowerLv: ${gameState.powerLevel || 0}`;
 }
 
 /* ---------- UI update ---------- */
@@ -631,8 +832,17 @@ function updateUI(){
   const pThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold)))
     ? Number(gameState.baseStats.playerThreshold)
     : 5;
-  stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
-  if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${pThreshold}`;
+  // stage label
+  if(gameState.isEndless){
+    stageInfo.textContent = `Endless Stage ${gameState.stage}`;
+  } else {
+    stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
+  }
+
+  // 表示用に player 側の閾値に battle modifier と boss multiplier（敵の超耐久は敵側に適用される）を適用
+  let displayPThresh = pThreshold * (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier ? gameState.playerBattleModifiers.thresholdMultiplier : 1);
+  if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh}`;
+
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
   updateHand('playerLeft', gameState.player.left);
   updateHand('playerRight', gameState.player.right);
@@ -658,9 +868,15 @@ function updateHand(key, value){
   let displayThreshold = 5;
   if(key.startsWith('player')) displayThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
   else {
-    displayThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5;
-    // add boss temporary bonus for enemy display too
-    displayThreshold += (gameState.bossEnemyThresholdBonus || 0);
+    // enemy threshold defaults to enemyBase.baseThreshold if present, otherwise baseStats.enemyThreshold
+    displayThreshold = (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseThreshold))) ? Number(gameState.enemyBase.baseThreshold) : ((gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5);
+    // add boss temporary multiplier for enemy display too
+    displayThreshold *= (gameState.bossEnemyThresholdMultiplier || 1);
+  }
+
+  // apply player battle modifier to displayed player threshold for UI only
+  if(key.startsWith('player')){
+    displayThreshold *= (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
   }
 
   if(bar) {
@@ -757,7 +973,10 @@ function computePlayerAttackBonus(handKey){
       if(tb.payload.type === 'teamPower') bonus += tb.payload.value;
     }
   });
-  bonus += (gameState.baseStats && gameState.baseStats.baseAttack) ? gameState.baseStats.baseAttack : 0;
+  // apply baseAttack * player battle attack multiplier
+  const baseAtk = (gameState.baseStats && gameState.baseStats.baseAttack) ? Number(gameState.baseStats.baseAttack) : 0;
+  const atkMul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.attackMultiplier) ? gameState.playerBattleModifiers.attackMultiplier : 1;
+  bonus += baseAtk * atkMul;
   return bonus;
 }
 function computeEnemyAttackBonus(attackerHandKey){
@@ -782,15 +1001,21 @@ function computeEnemyAttackReduction(){
   return reduction;
 }
 
-/* ---------- destroy threshold (attacker-aware, FIXED) ---------- */
+/* ---------- destroy threshold (attacker-aware, with multipliers, supports enemyBase) ---------- */
 function getDestroyThreshold(attackerIsPlayer = true){
   const targetIsEnemy = attackerIsPlayer === true;
-  let thresholdRaw = targetIsEnemy
-    ? (Number.isFinite(Number(gameState.baseStats.enemyThreshold)) ? Number(gameState.baseStats.enemyThreshold) : 5)
-    : (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? Number(gameState.baseStats.playerThreshold) : 5);
-
-  // add boss temporary bonus only for enemy target
-  if(targetIsEnemy) thresholdRaw += (gameState.bossEnemyThresholdBonus || 0);
+  let thresholdRaw;
+  if(targetIsEnemy){
+    // prefer per-enemy baseThreshold, fallback to baseStats.enemyThreshold
+    thresholdRaw = (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseThreshold))) ? Number(gameState.enemyBase.baseThreshold) : ((gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5);
+    // apply boss multiplier
+    thresholdRaw = thresholdRaw * (gameState.bossEnemyThresholdMultiplier || 1);
+  } else {
+    thresholdRaw = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? Number(gameState.baseStats.playerThreshold) : 5);
+    // apply player-side battle modifier when target is player
+    const mul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
+    thresholdRaw = thresholdRaw * mul;
+  }
 
   let threshold = Number(thresholdRaw);
   if(!Number.isFinite(threshold)) threshold = 5;
@@ -837,6 +1062,7 @@ function applyPendingActiveOnPlayer(side){
   const sk = gameState.equippedSkills[pending.idx];
   if(!sk || sk.used){ gameState.pendingActiveUse = null; messageArea.textContent = 'そのスキルは使用できません'; return; }
 
+  // HEAL (既存)
   if(pending.id === 'heal'){
     const amount = 1 + sk.level;
     playSE('skill', 0.7);
@@ -850,7 +1076,86 @@ function applyPendingActiveOnPlayer(side){
     gameState.pendingActiveUse = null;
     updateUI();
     renderEquipped();
+    return;
   }
+
+  // OVERHEAT (新): 自身の手 +3, プレイヤーシールド + level
+  if(pending.id === 'overheat'){
+    const amount = 3;
+    playSE('skill', 0.8);
+    const cur = toNum(gameState.player[side]);
+    const newVal = Math.min(HARD_CAP, cur + amount);
+    gameState.player[side] = newVal;
+    // add shield
+    gameState.playerShield = (gameState.playerShield || 0) + (sk.level || 1);
+    sk.used = true;
+    messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount}) — シールド +${sk.level}`;
+    const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(el, `+${amount}`, '#ffd166');
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
+
+  // PUMP UP (新): 自身の手 + level
+  if(pending.id === 'pumpUp'){
+    const amount = sk.level || 1;
+    playSE('skill', 0.7);
+    const cur = toNum(gameState.player[side]);
+    const newVal = Math.min(HARD_CAP, cur + amount);
+    gameState.player[side] = newVal;
+    sk.used = true;
+    messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount})`;
+    const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(el, `+${amount}`, '#ffd166');
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
+
+  // SPLIT (新): 片手のみ生存 && 値 >= 2 の場合に発動
+  if(pending.id === 'split'){
+    // check alive hands
+    const alive = ['left','right'].filter(k => toNum(gameState.player[k]) > 0);
+    if(alive.length !== 1){
+      messageArea.textContent = '分割は片手のみ生存している時に使用できます';
+      gameState.pendingActiveUse = null;
+      return;
+    }
+    if(alive[0] !== side){
+      messageArea.textContent = '分割は生存している手を選んでください';
+      gameState.pendingActiveUse = null;
+      return;
+    }
+    const val = toNum(gameState.player[side]);
+    if(val < 2){
+      messageArea.textContent = '分割するには値が2以上必要です';
+      gameState.pendingActiveUse = null;
+      return;
+    }
+    playSE('skill', 0.75);
+    const half1 = Math.floor(val / 2);
+    const half2 = Math.ceil(val / 2);
+    const other = side === 'left' ? 'right' : 'left';
+    gameState.player[side] = half1;
+    gameState.player[other] = half2;
+    sk.used = true;
+    messageArea.textContent = `${sk.name} を使用：${val} → ${half1} / ${half2}`;
+    const elSide = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    const elOther = hands[other === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(elSide, `${half1}`, '#ffd166');
+    showPopupText(elOther, `${half2}`, '#ffd166');
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
+
+  // fallback
+  gameState.pendingActiveUse = null;
+  messageArea.textContent = 'その操作は無効です';
 }
 
 /* ---------- active handlers (player -> enemy) ---------- */
@@ -922,33 +1227,26 @@ function playerAttack(targetSide){
   const destroyThreshold = getDestroyThreshold(true);
   let destroyed = false;
 
+  // 保存しておく（破壊前の attempted value = newVal）
+  const attemptedValue = newVal;
+
   if(Number(newVal) >= Number(destroyThreshold)){
-    if(gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onBeforeDestroy === 'function'){
-      const canceled = gameState.bossAbility.onBeforeDestroy(targetSide, newVal);
-      if(canceled === true){
-        destroyed = false;
-        updateUI();
-      } else {
-        newVal = 0;
-        destroyed = true;
-        animateDestroy(targetEl);
-        playSE('destroy', 0.9);
-      }
-    } else {
-      newVal = 0;
-      destroyed = true;
-      animateDestroy(targetEl);
-      playSE('destroy', 0.9);
+    // 破壊
+    newVal = 0;
+    destroyed = true;
+    animateDestroy(targetEl);
+    playSE('destroy', 0.9);
+
+    // 破壊された後にボス能力が onHandDestroyed を持っていれば渡す（転生等）
+    if(gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onHandDestroyed === 'function'){
+      try { gameState.bossAbility.onHandDestroyed(targetSide, attemptedValue); } catch(e){}
+      // onHandDestroyed の中で復活させる場合は上書きされる
     }
   } else {
     if(newVal > HARD_CAP) newVal = HARD_CAP;
   }
 
   gameState.enemy[targetSide] = newVal;
-
-  if(destroyed && gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onHandDestroyed === 'function'){
-    try { gameState.bossAbility.onHandDestroyed(targetSide); } catch(e){}
-  }
 
   handleCounter(false, attackerKey, true, targetSide);
 
@@ -1068,10 +1366,15 @@ function enemyTurn(){
   playSE('attack', 0.65);
   animateAttack(attackerEl, targetEl);
 
+  // attack = enemy hand + computed bonuses + enemyBase.attack
   let attackValue = toNum(gameState.enemy[from]);
   attackValue += computeEnemyAttackBonus(from);
+  attackValue += (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseAttack))) ? Number(gameState.enemyBase.baseAttack) : 0;
 
-  const defense = computeDefenseForTarget(false) + (gameState.baseStats && gameState.baseStats.baseDefense ? gameState.baseStats.baseDefense : 0);
+  // base defense: apply player battle defense multiplier
+  const baseDef = (gameState.baseStats && gameState.baseStats.baseDefense) ? Number(gameState.baseStats.baseDefense) : 0;
+  const playerDefMul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.defenseMultiplier) ? gameState.playerBattleModifiers.defenseMultiplier : 1;
+  const defense = computeDefenseForTarget(false) + (baseDef * playerDefMul);
   attackValue = Math.max(0, attackValue - defense);
 
   const reduction = computeEnemyAttackReduction();
@@ -1086,10 +1389,21 @@ function enemyTurn(){
     if(tb.payload && tb.payload.type === 'teamPower') attackValue += tb.payload.value;
   });
 
+  // --- SHIELD handling for player (オーバーヒート) ---
+  let remainingAttack = attackValue;
+  if(gameState.playerShield && gameState.playerShield > 0){
+    const absorbed = Math.min(remainingAttack, gameState.playerShield);
+    gameState.playerShield -= absorbed;
+    remainingAttack = Math.max(0, remainingAttack - absorbed);
+    if(absorbed > 0){
+      showPopupText(targetEl, `Shield -${absorbed}`, '#ffd166');
+    }
+  }
+
   showDamage(targetEl, attackValue, '#ffb86b');
 
   let curPlayer = toNum(gameState.player[to]);
-  let newVal = curPlayer + attackValue;
+  let newVal = curPlayer + remainingAttack;
   if(!Number.isFinite(newVal)) newVal = 0;
 
   const destroyThreshold = getDestroyThreshold(false);
@@ -1151,6 +1465,13 @@ function checkWinLose(){
 
   if(enemyDead){
     playSE('victory', 0.8);
+    // if boss and stage >= maxStage and not endless => game clear
+    if(gameState.isBoss && !gameState.isEndless && gameState.stage >= gameState.maxStage){
+      // trigger game clear screen
+      setTimeout(()=> triggerGameClear(), 350);
+      return true;
+    }
+
     if(gameState.isBoss){
       messageArea.textContent = 'Boss Defeated! 基礎ステータスを1つ選択してください';
       setTimeout(()=> showBossRewardSelection(), 350);
@@ -1164,6 +1485,7 @@ function checkWinLose(){
   if(playerDead){
     playSE('lose', 0.8);
     messageArea.textContent = 'Game Over';
+    updateBestStage();
     if(gameState.stage > gameState.bestStage){
       gameState.bestStage = gameState.stage;
       saveBest();
@@ -1175,6 +1497,71 @@ function checkWinLose(){
     return true;
   }
   return false;
+}
+
+/* ---------- trigger game clear ---------- */
+function triggerGameClear(){
+  gameState.isGameClear = true;
+  gameState.isEndless = false;
+
+  // hide main container and show clear screen if exists
+  try {
+    const container = document.querySelector('.container');
+    if(container) container.style.display = 'none';
+    if(clearScreen) clearScreen.style.display = 'flex';
+  } catch(e){}
+
+  updateBestStage();
+}
+
+/* ---------- handle endless from clear ---------- */
+function handleEndlessFromClear(){
+  if(!clearScreen) return;
+  try {
+    if(endlessButton) playSE('click', 0.5);
+    gameState.isEndless = true;
+    gameState.isGameClear = false;
+    gameState.stage = Math.max(13, gameState.stage || 13); // go to 13
+    // hide clear screen, show main UI
+    const container = document.querySelector('.container');
+    if(clearScreen) clearScreen.style.display = 'none';
+    if(container) container.style.display = 'block';
+    // start the endless stage
+    startBattle();
+  } catch(e){}
+}
+
+/* ---------- handle back to title from clear ---------- */
+function handleBackToTitleFromClear(){
+  try {
+    if(backToTitleButton) playSE('click', 0.5);
+    // hide clear screen and show title
+    if(clearScreen) clearScreen.style.display = 'none';
+    showTitle();
+  } catch(e){}
+}
+
+/* ---------- handle retire ---------- */
+function handleRetire(){
+  if(!confirm('本当にリタイアしますか？\n現在の進行は失われます（BestStageは保存されます）。')) return;
+  updateBestStage();
+  resetFullGameToTitle();
+}
+
+/* ---------- reset full game and return to title ---------- */
+function resetFullGameToTitle(){
+  // reset progression but keep unlocked skills and best
+  gameState.stage = 1;
+  gameState.isEndless = false;
+  gameState.isGameClear = false;
+  gameState.powerLevel = 0;
+  gameState.awaitingEquip = false;
+
+  // hide container and show title
+  const container = document.querySelector('.container');
+  if(container) container.style.display = 'none';
+  if(clearScreen) clearScreen.style.display = 'none';
+  showTitle();
 }
 
 /* ---------- weighted selection helpers ---------- */
@@ -1216,7 +1603,7 @@ function generateBaseStatRewards(){
       id: 'playerThreshold',
       name: '💎 破壊閾値 +1',
       desc: '指の破壊閾値を +1（プレイヤー側、ラン内有効）',
-      apply: () => { gameState.baseStats.playerThreshold = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? Number(gameState.baseStats.playerThreshold) : 5) + 1; }
+      apply: () => { gameState.baseStats.playerThreshold = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5) + 1; }
     }
   ];
 
@@ -1242,6 +1629,7 @@ function showBaseRewardSelection(rewards){
       updateUI();
       flashScreen(.14);
       setTimeout(()=> {
+        // advance stage and start next battle
         gameState.stage++;
         startBattle();
       }, 700);
@@ -1328,6 +1716,7 @@ function showRewardSelection(){
       skillSelectArea.innerHTML = '';
       flashScreen(.14);
       setTimeout(()=> {
+        // stage up and next battle
         gameState.stage++;
         startBattle();
       }, 700);
@@ -1369,7 +1758,7 @@ function showBossRewardSelection(){
       }
       messageArea.textContent = `${opt.label} を獲得しました`;
       // boss temporary effects should be cleared now (won't carry over)
-      gameState.bossEnemyThresholdBonus = 0;
+      gameState.bossEnemyThresholdMultiplier = 1;
       gameState.bossAbility = null;
       gameState.enemyHasThirdHand = false;
       updateUI();
@@ -1377,6 +1766,7 @@ function showBossRewardSelection(){
       skillSelectArea.innerHTML = '';
       flashScreen(.18);
       setTimeout(()=> {
+        // check for Stage clear or end
         gameState.stage++;
         startBattle();
       }, 700);
@@ -1401,6 +1791,12 @@ function selectHand(side){
   if(toNum(gameState.player[side]) === 0) return;
 
   playSE('click', 0.5);
+
+  // If an active requiring player-hand target is pending, handle here
+  if(gameState.pendingActiveUse && ['heal','overheat','pumpUp','split'].includes(gameState.pendingActiveUse.id)){
+    applyPendingActiveOnPlayer(side);
+    return;
+  }
 
   if(selectedHand === side){
     selectedHand = null;
@@ -1528,7 +1924,7 @@ function refreshOverlayContent(owner, hand){
   } else {
     const keys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
     const bestKey = keys.reduce((a,b) => (toNum(gameState.enemy[a]) > toNum(gameState.enemy[b]) ? a : b));
-    sampleAtt = Math.max(toNum(gameState.enemy[bestKey]), 0) + computeEnemyAttackBonus(bestKey);
+    sampleAtt = Math.max(toNum(gameState.enemy[bestKey]), 0) + computeEnemyAttackBonus(bestKey) + (gameState.enemyBase && gameState.enemyBase.baseAttack ? gameState.enemyBase.baseAttack : 0);
   }
   const sampleText = `代表攻撃力目安: ${sampleAtt} ${attackerDoubleText}`;
 
@@ -1564,17 +1960,6 @@ function removeOverlay(){
   }
 }
 
-/* ---------- boss helpers ---------- */
-function assignBossAbility(){
-  const ability = BOSS_ABILITIES[rand(0, BOSS_ABILITIES.length - 1)];
-  gameState.bossAbility = ability;
-  if(ability && typeof ability.apply === 'function'){
-    ability.apply();
-  }
-  if(gameState.enemyHasThirdHand && typeof gameState.enemy.third === 'undefined') gameState.enemy.third = 1;
-  updateUI();
-}
-
 /* ---------- force lose (タイムリミット) ---------- */
 function forceLose(){
   messageArea.textContent = 'タイムアップ…強制敗北！';
@@ -1586,6 +1971,19 @@ function forceLose(){
 
 /* ---------- start ---------- */
 initGame();
+
+/* ---------- misc helpers ---------- */
+function updateBestStage(){
+  try {
+    const best = Number(localStorage.getItem(BEST_KEY) || 1);
+    const cur = Number(gameState.stage || 1);
+    if(cur > best){
+      localStorage.setItem(BEST_KEY, String(cur));
+      gameState.bestStage = cur;
+      if(bestStageValue) bestStageValue.textContent = cur;
+    }
+  } catch(e){}
+}
 
 /* expose for debugging */
 window.__FD = {
@@ -1600,5 +1998,9 @@ window.__FD = {
   assignEnemySkills,
   showBossRewardSelection,
   assignBossAbility,
-  debug_getDestroyThreshold: getDestroyThreshold
+  debug_getDestroyThreshold: getDestroyThreshold,
+  triggerGameClear,
+  handleEndlessFromClear,
+  handleRetire
 };
+
