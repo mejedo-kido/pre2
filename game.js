@@ -736,35 +736,54 @@ function playerAttack(targetSide){
   if(!selectedHand){ messageArea.textContent = '攻撃する手を選んでください'; return; }
   if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'heal'){ messageArea.textContent = 'ヒール使用中：自分の手を選んでください'; return; }
 
-  const attackerKey = selectedHand; const attackerEl = hands[attackerKey === 'left' ? 'playerLeft' : 'playerRight']; const targetEl = hands[targetSide === 'left' ? 'enemyLeft' : (targetSide === 'right' ? 'enemyRight' : 'enemyThird')];
+  const attackerKey = selectedHand;
+  const attackerEl = hands[attackerKey === 'left' ? 'playerLeft' : 'playerRight'];
+  const targetEl = hands[targetSide === 'left' ? 'enemyLeft' : (targetSide === 'right' ? 'enemyRight' : 'enemyThird')];
 
-  if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'disrupt'){ applyPendingActiveOnEnemy(targetSide); return; }
+  if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'disrupt'){
+    applyPendingActiveOnEnemy(targetSide);
+    return;
+  }
 
-  playSE('attack', 0.7); animateAttack(attackerEl, targetEl);
+  playSE('attack', 0.7);
+  animateAttack(attackerEl, targetEl);
 
-  let baseAtk = toNum(gameState.player[attackerKey]); baseAtk += computePlayerAttackBonus(attackerKey);
+  let baseAtk = toNum(gameState.player[attackerKey]);
+  baseAtk += computePlayerAttackBonus(attackerKey);
+
   const defense = computeDefenseForTarget(true);
-  let multiplier = gameState.doubleMultiplier || 1; gameState.doubleMultiplier = 1;
-  if(multiplier > 1){ const idx = (gameState.equippedSkills || []).findIndex(s => s.id === 'double' && !s.used); if(idx !== -1) { gameState.equippedSkills[idx].used = true; renderEquipped(); } }
-  let rawAdded = baseAtk * multiplier; const added = Math.max(0, rawAdded - defense);
+
+  let multiplier = gameState.doubleMultiplier || 1;
+  gameState.doubleMultiplier = 1;
+  if(multiplier > 1){
+    const idx = (gameState.equippedSkills || []).findIndex(s => s.id === 'double' && !s.used);
+    if(idx !== -1) { gameState.equippedSkills[idx].used = true; renderEquipped(); }
+  }
+
+  let rawAdded = baseAtk * multiplier;
+  const added = Math.max(0, rawAdded - defense);
 
   showDamage(targetEl, baseAtk);
 
-  // apply addition
+  // apply addition to the enemy hand
   const curEnemy = toNum(gameState.enemy[targetSide]);
   let newVal = curEnemy + added;
   if(!Number.isFinite(newVal)) newVal = 0;
-  // temporarily set value (we do not call onBeforeDestroy here to avoid mid-loop changes)
   gameState.enemy[targetSide] = newVal;
-  // detect destroy targets AFTER applying the change
+
+  // detect destroyed targets (collect them; actual handling occurs in processDestroyedList)
   const destroyed = detectDestroyTargets();
-  // process destroyed AFTER detection (this ensures stable behavior even if multiple destructs / revivals)
-  if(destroyed.length > 0){
-    processDestroyedList(destroyed.filter(d => d.ownerIsEnemy));
+
+  // process enemy-side destroyed entries immediately (post-detection)
+  const enemyDestroyed = destroyed.filter(d => d.ownerIsEnemy);
+  if(enemyDestroyed.length > 0){
+    processDestroyedList(enemyDestroyed);
   }
-  // counter, chain etc.
+
+  // handle counter and chain buffs
   handleCounter(false, attackerKey, true, targetSide);
-  if(destroyed.some(d => d.ownerIsEnemy && d.side === targetSide) && hasEquipped('chain')){
+
+  if(enemyDestroyed.some(d => d.side === targetSide) && hasEquipped('chain')){
     const lvl = getEquippedLevel('chain');
     applyTurnBuff('chainBoost', lvl, 1);
     const tb = gameState.turnBuffs[gameState.turnBuffs.length - 1];
@@ -772,35 +791,27 @@ function playerAttack(targetSide){
     messageArea.textContent = `チェイン発動！次の攻撃が +${lvl}されます`;
   }
 
+  // clear selection and advance turn
   clearHandSelection();
   gameState.playerTurn = false;
   updateUI();
   flashScreen();
 
-    // ----- ここまで攻撃処理と UI 更新済み -----
-  clearHandSelection();
-  gameState.playerTurn = false;
-  updateUI();
-  flashScreen();
-
-  // ボス固有のターン終了フックがあれば呼ぶ（副作用で gameState を変更する可能性がある）
+  // call boss end-of-player-turn hooks (they may modify gameState)
   if(gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onPlayerTurnEnd === 'function'){
     try { gameState.bossAbility.onPlayerTurnEnd(); } catch(e){}
   }
 
-  // ここでまず勝敗判定を行い、ゲームが終わっていなければ敵ターンをスケジュールする。
-  // 重要: boss のフックが gameState.playerTurn を書き換える場合があるため、
-  // 「プレイヤーターンでなくなっている」ことを最終的な条件に使う。
+  // after hooks, check win/lose; if game not finished and it's really the enemy's turn, schedule enemyTurn
   if(!checkWinLose()){
-    // 敵ターンを実行するのは「本当にプレイヤーターンでなくなっている時」のみ
     if(!gameState.playerTurn){
       setTimeout(()=> enemyTurn(), 650);
     } else {
-      // ここに到達するのは稀（ボス能力が敵ターンをスキップさせた等）
-      // 特に何もしない — 次の操作はボス能力側の制御に従う
+      // ボス能力が意図的に敵ターンをスキップして playerTurn を true に戻した場合はここに来る。
+      // 特に何もしない（ボス能力側の制御に従う）。
     }
   }
-
+}
 /* ---------- enemy turn (skills + attack), with detection/postprocessing ---------- */
 function enemyTurn(){
   if(gameState.inBossReward) return;
@@ -1088,4 +1099,5 @@ function tickTurnBuffsWrapper(){ tickTurnBuffs(); tickEnemyTurnBuffs(); updateUI
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
