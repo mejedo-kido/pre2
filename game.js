@@ -777,12 +777,29 @@ function playerAttack(targetSide){
   updateUI();
   flashScreen();
 
+    // ----- ここまで攻撃処理と UI 更新済み -----
+  clearHandSelection();
+  gameState.playerTurn = false;
+  updateUI();
+  flashScreen();
+
+  // ボス固有のターン終了フックがあれば呼ぶ（副作用で gameState を変更する可能性がある）
   if(gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onPlayerTurnEnd === 'function'){
-    try { gameState.bossAbility.onPlayerTurnEnd(); } catch(e){} if(gameState.bossTurnCount <= 0) { return; }
+    try { gameState.bossAbility.onPlayerTurnEnd(); } catch(e){}
   }
 
-  if(!checkWinLose()) setTimeout(()=> enemyTurn(), 650);
-}
+  // ここでまず勝敗判定を行い、ゲームが終わっていなければ敵ターンをスケジュールする。
+  // 重要: boss のフックが gameState.playerTurn を書き換える場合があるため、
+  // 「プレイヤーターンでなくなっている」ことを最終的な条件に使う。
+  if(!checkWinLose()){
+    // 敵ターンを実行するのは「本当にプレイヤーターンでなくなっている時」のみ
+    if(!gameState.playerTurn){
+      setTimeout(()=> enemyTurn(), 650);
+    } else {
+      // ここに到達するのは稀（ボス能力が敵ターンをスキップさせた等）
+      // 特に何もしない — 次の操作はボス能力側の制御に従う
+    }
+  }
 
 /* ---------- enemy turn (skills + attack), with detection/postprocessing ---------- */
 function enemyTurn(){
@@ -1071,3 +1088,4 @@ function tickTurnBuffsWrapper(){ tickTurnBuffs(); tickEnemyTurnBuffs(); updateUI
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
