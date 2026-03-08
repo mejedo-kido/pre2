@@ -357,6 +357,10 @@ function startBattle(){
   gameState.enemy.third = 0;
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
+    // --- 追加: powerLevel による一時スケーリング用の初期化 ---
+  gameState.enemyTempAttack = 0;
+  gameState.enemyTempDefense = 0;
+  gameState.enemyTempThreshold = 0;
   gameState.isBoss = (gameState.stage % 3 === 0);
   document.body.classList.toggle('boss', gameState.isBoss);
   if(gameState.isBoss) assignBossAbility();
@@ -466,19 +470,27 @@ function assignBossAbility(){
 }
 /* ---------- apply powerLevel scaling to enemy ---------- */
 function applyPowerScalingToEnemy(){
+  // reset temp values first (defensive)
+  gameState.enemyTempAttack = 0;
+  gameState.enemyTempDefense = 0;
+  gameState.enemyTempThreshold = 0;
+
   const pl = Number(gameState.powerLevel || 0);
   if(pl <= 0) return;
+
+  // distribute pl points randomly into three buckets (threshold, attack, defense)
   for(let i=0;i<pl;i++){
     const r = rand(0,2);
-    if(r === 0) gameState.enemyThresholdTemp = (gameState.enemyThresholdTemp || 0) + 1, gameState.enemy.left = gameState.enemy.left;
-    if(r === 1) gameState.enemyAttackTemp = (gameState.enemyAttackTemp || 0) + 1;
-    if(r === 2) gameState.enemyDefenseTemp = (gameState.enemyDefenseTemp || 0) + 1;
+    if(r === 0) gameState.enemyTempThreshold++;
+    else if(r === 1) gameState.enemyTempAttack++;
+    else gameState.enemyTempDefense++;
   }
-  // merge temp to enemy base
-  gameState.enemyBase = gameState.enemyBase || { baseAttack:0, baseDefense:0, baseThreshold: (gameState.baseStats.enemyThreshold || 5) };
-  if(gameState.enemyAttackTemp){ gameState.enemyBase.baseAttack = (gameState.enemyBase.baseAttack || 0) + gameState.enemyAttackTemp; gameState.enemyAttackTemp = 0; }
-  if(gameState.enemyDefenseTemp){ gameState.enemyBase.baseDefense = (gameState.enemyBase.baseDefense || 0) + gameState.enemyDefenseTemp; gameState.enemyDefenseTemp = 0; }
-  if(gameState.enemyThresholdTemp){ gameState.enemyBase.baseThreshold = (gameState.enemyBase.baseThreshold || (gameState.baseStats.enemyThreshold || 5)) + gameState.enemyThresholdTemp; gameState.enemyThresholdTemp = 0; }
+
+  // NOTE:
+  // - these enemyTemp* values are intentionally temporary (per-battle)
+  // - they are used by getDestroyThreshold() and computeEnemyAttackBonus()
+  // - they do NOT modify enemyBase or any persistent storage
+  updateEnemySkillUI();
 }
 
 /* ---------- equip / reward UI ---------- */
@@ -1163,5 +1175,6 @@ function tickTurnBuffsWrapper(){ tickTurnBuffs(); tickEnemyTurnBuffs(); updateUI
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
 
