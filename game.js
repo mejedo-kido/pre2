@@ -333,10 +333,8 @@ function startGame(){
   startBattle();
 }
 
-/* --- startBattle の powerLevel 部分を以下に置き換えてください --- */
 function startBattle(){
   if(gameState.inBossReward) return;
-
   // reset per-battle temp values
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.bossAbility = null;
@@ -344,7 +342,6 @@ function startBattle(){
   gameState.enemyHasThirdHand = false;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.playerShield = 0;
-
   equipTemp = [];
   selectedHand = null;
   gameState.pendingActiveUse = null;
@@ -353,42 +350,40 @@ function startBattle(){
   gameState.turnBuffs = [];
   gameState.playerTurn = true;
   gameState.combo = 0;
-
   gameState.player.left = 1;
   gameState.player.right = 1;
-
   gameState.enemy.left = toNum(rand(1,2));
   gameState.enemy.right = toNum(rand(1,2));
   gameState.enemy.third = 0;
-
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
-
   gameState.isBoss = (gameState.stage % 3 === 0);
   document.body.classList.toggle('boss', gameState.isBoss);
-
-  // ==== powerLevel (ability rise) handling ====
-  // Endlessモードならステージ開始ごとに +1、通常モードなら必ず 0 にリセットする
-  if (gameState.isEndless) {
-    gameState.powerLevel = (Number(gameState.powerLevel) || 0) + 1;
-  } else {
-    gameState.powerLevel = 0;
-  }
-  // ===========================================
-
-  if(gameState.isBoss){
-    assignBossAbility();
-  }
-
+  if(gameState.isBoss) assignBossAbility();
   assignEnemySkills();
-
-  // apply scaling after enemy skills / boss assignment
+  if(gameState.isEndless) gameState.powerLevel = (gameState.powerLevel || 0) + 1;
   applyPowerScalingToEnemy();
-
   gameState.awaitingEquip = true;
   updateUI();
   showEquipSelection();
 }
+
+/* ---------- assign enemy skills ---------- */
+function assignEnemySkills(){
+  const possible = SKILL_POOL.slice().filter(s => s.id !== 'revenge');
+  const skillCount = Math.min(3, 1 + Math.floor(gameState.stage / 4));
+  const chosen = [];
+  let pool = possible.slice();
+  while(chosen.length < skillCount && pool.length > 0){
+    const idx = rand(0, pool.length - 1);
+    const s = pool.splice(idx, 1)[0];
+    const level = Math.min(MAX_SKILL_LEVEL, 1 + Math.floor(gameState.stage / 6));
+    chosen.push({ id: s.id, level, type: s.type, name: s.name, remainingCooldown: 0 });
+  }
+  gameState.enemySkills = chosen;
+  updateEnemySkillUI();
+}
+
 /* ---------- assign boss ability (composite if stage>=12) ---------- */
 function assignBossAbility(){
   // safety: clear any previous temporary boss effects before assigning a new ability
@@ -470,26 +465,22 @@ function assignBossAbility(){
   updateUI();
 }
 /* ---------- apply powerLevel scaling to enemy ---------- */
-/* --- applyPowerScalingToEnemy の安全実装 --- */
 function applyPowerScalingToEnemy(){
   const pl = Number(gameState.powerLevel || 0);
   if(pl <= 0) return;
-
-  // 累積用の object を確実に用意
-  gameState.enemyBase = gameState.enemyBase || { baseAttack:0, baseDefense:0, baseThreshold: (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold)) ? Number(gameState.baseStats.enemyThreshold) : 5) };
-
-  // pl の分だけランダムに割り振る（閾値・攻撃・防御）
   for(let i=0;i<pl;i++){
     const r = rand(0,2);
-    if(r === 0){
-      gameState.enemyBase.baseThreshold = (Number(gameState.enemyBase.baseThreshold) || 0) + 1;
-    } else if(r === 1){
-      gameState.enemyBase.baseAttack = (Number(gameState.enemyBase.baseAttack) || 0) + 1;
-    } else {
-      gameState.enemyBase.baseDefense = (Number(gameState.enemyBase.baseDefense) || 0) + 1;
-    }
+    if(r === 0) gameState.enemyThresholdTemp = (gameState.enemyThresholdTemp || 0) + 1, gameState.enemy.left = gameState.enemy.left;
+    if(r === 1) gameState.enemyAttackTemp = (gameState.enemyAttackTemp || 0) + 1;
+    if(r === 2) gameState.enemyDefenseTemp = (gameState.enemyDefenseTemp || 0) + 1;
   }
+  // merge temp to enemy base
+  gameState.enemyBase = gameState.enemyBase || { baseAttack:0, baseDefense:0, baseThreshold: (gameState.baseStats.enemyThreshold || 5) };
+  if(gameState.enemyAttackTemp){ gameState.enemyBase.baseAttack = (gameState.enemyBase.baseAttack || 0) + gameState.enemyAttackTemp; gameState.enemyAttackTemp = 0; }
+  if(gameState.enemyDefenseTemp){ gameState.enemyBase.baseDefense = (gameState.enemyBase.baseDefense || 0) + gameState.enemyDefenseTemp; gameState.enemyDefenseTemp = 0; }
+  if(gameState.enemyThresholdTemp){ gameState.enemyBase.baseThreshold = (gameState.enemyBase.baseThreshold || (gameState.baseStats.enemyThreshold || 5)) + gameState.enemyThresholdTemp; gameState.enemyThresholdTemp = 0; }
 }
+
 /* ---------- equip / reward UI ---------- */
 function showEquipSelection(){
   skillSelectArea.innerHTML = '';
