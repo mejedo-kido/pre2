@@ -1070,7 +1070,11 @@ function enemyTurn(){
     if(skill.remainingCooldown && skill.remainingCooldown > 0) return;
     if(skill.id === 'heal'){ const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0); if(candidates.length > 0 && Math.random() < 0.6){ const r = candidates[rand(0, candidates.length - 1)]; const amount = 1 + skill.level; const cur = toNum(gameState.enemy[r]); const nv = safeDecrease(cur, amount); gameState.enemy[r] = nv; const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]; showPopupText(el, `-${amount}`, '#ff9e9e'); skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を使用した`; } }
     if(skill.id === 'double'){ if(Math.random() < 0.35){ gameState.enemyDoubleMultiplier = 1 + skill.level; skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を構えた`; } }
-    if(skill.id === 'regen'){ applyRegenToUnit(true, skill.level); }
+    if(skill.id === 'regen' && Math.random() < 0.3){
+  applyRegenToUnit(true, skill.level);
+  skill.remainingCooldown = 3;
+  messageArea.textContent = `敵が ${skill.name} を使用した`;
+}
     if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = 3; messageArea.textContent = `敵が ${skill.name} を構えた`; }
     if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を準備`; }
     if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = 2; messageArea.textContent = `敵が ${skill.name} を使用した`; } }
@@ -1140,7 +1144,11 @@ function enemyTurn(){
       });
     }
   });
-
+gameState.turnBuffs.forEach(tb => {
+  if(tb.payload && tb.payload.type === 'regen') {
+    applyRegenToUnit(false, tb.payload.value);
+  }
+});
    // at the end of enemyTurn before setting playerTurn true:
   tickTurnBuffs();
   tickEnemyTurnBuffs();
@@ -1353,6 +1361,7 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
 
 
