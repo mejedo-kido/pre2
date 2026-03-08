@@ -660,9 +660,17 @@ function computeEnemyAttackReduction(){ let reduction = 0; (gameState.equippedSk
 function getDestroyThreshold(attackerIsPlayer = true){
   const targetIsEnemy = attackerIsPlayer === true;
   let thresholdRaw;
-  if(targetIsEnemy){
-    thresholdRaw = (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseThreshold))) ? Number(gameState.enemyBase.baseThreshold) : ((gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold))) ? Number(gameState.baseStats.enemyThreshold) : 5);
+    if(targetIsEnemy){
+    thresholdRaw = (gameState.enemyBase && Number.isFinite(Number(gameState.enemyBase.baseThreshold)))
+      ? Number(gameState.enemyBase.baseThreshold)
+      : ((gameState.baseStats && Number.isFinite(Number(gameState.baseStats.enemyThreshold)))
+         ? Number(gameState.baseStats.enemyThreshold) : 5);
+
+    // boss multiplier (fortress等)
     thresholdRaw = thresholdRaw * (gameState.bossEnemyThresholdMultiplier || 1);
+
+    // <-- 追加: per-battle temporary threshold increases from powerLevel -->
+    thresholdRaw = thresholdRaw + (Number(gameState.enemyTempThreshold || 0));
   } else {
     thresholdRaw = (Number.isFinite(Number(gameState.baseStats.playerThreshold)) ? gameState.baseStats.playerThreshold : 5);
     const mul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
@@ -1175,6 +1183,7 @@ function tickTurnBuffsWrapper(){ tickTurnBuffs(); tickEnemyTurnBuffs(); updateUI
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
 
 
