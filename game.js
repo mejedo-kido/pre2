@@ -941,7 +941,7 @@ function applyPendingActiveOnEnemy(side){
     updateUI();
     renderEquipped();
   }
-
+}
 /* ---------- central destroy-detection helpers ---------- */
 /*
   After any action that could change values (attack, skill), call:
@@ -1353,6 +1353,7 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
 
 
