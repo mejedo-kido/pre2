@@ -601,7 +601,7 @@ function renderEquipped(){
     } else {
       const btn = document.createElement('button');
       // disable when either used flag (for turn-type) or remainingCooldown > 0
-      const disabled = (s.used && s.type !== 'active' && s.type !== 'turn') || (s.remainingCooldown && s.remainingCooldown > 0);
+      const disabled = (s.used && s.type !== 'active') || (s.remainingCooldown && s.remainingCooldown > 0);
       btn.textContent = `${s.name} Lv${s.level}`;
       btn.disabled = disabled;
       if(disabled) btn.classList.add('used');
@@ -1353,6 +1353,7 @@ function forceLose(){ gameState.player.left = 0; gameState.player.right = 0; che
 /* ---------- init + expose ---------- */
 initGame();
 window.__FD = { state: gameState, saveUnlocked, loadUnlocked, SKILL_POOL, getUnlockedLevel, commitEquips: ()=>commitEquips(), renderEquipped, assignEnemySkills, showBossRewardSelection, assignBossAbility, debug_getDestroyThreshold: getDestroyThreshold, triggerGameClear, handleEndlessFromClear, handleRetire };
+
 
 
 
