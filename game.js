@@ -298,11 +298,14 @@ function startTutorialBattle(){
 
 function updateTutorialBattleGuide(){
   if(!gameState.isTutorial) return;
+  const finalTarget = (gameState.tutorialBattleStep === 3 && toNum(gameState.enemy.right) === 0) ? 'left' : 'right';
   const guides = [
     '実践STEP1: 左手を選択してください',
     '実践STEP2: 右の敵手を攻撃してください',
     '実践STEP3: ダブルストライクを押してください',
-    '実践STEP4: もう一度右の敵手を攻撃して破壊しましょう'
+    finalTarget === 'right'
+      ? '実践STEP4: 右の敵手を攻撃して破壊しましょう'
+      : '実践STEP4: 右手は破壊済みです。左の敵手を攻撃して勝利しましょう'
   ];
   messageArea.textContent = guides[Math.min(gameState.tutorialBattleStep, guides.length - 1)];
 }
@@ -1392,7 +1395,13 @@ function selectHand(side){
 function clickEnemyHand(side){
   if(gameState.inBossReward) return;
   if(gameState.isTutorial){
-    if(side !== 'right'){ messageArea.textContent = 'チュートリアル手順: 右の敵手を狙ってください'; return; }
+    const requiredTarget = (gameState.tutorialBattleStep === 3 && toNum(gameState.enemy.right) === 0) ? 'left' : 'right';
+    if(side !== requiredTarget){
+      messageArea.textContent = requiredTarget === 'right'
+        ? 'チュートリアル手順: 右の敵手を狙ってください'
+        : 'チュートリアル手順: 左の敵手を狙ってください';
+      return;
+    }
     if(gameState.tutorialBattleStep !== 1 && gameState.tutorialBattleStep !== 3){ updateTutorialBattleGuide(); return; }
   }
   if(skillSelectArea && skillSelectArea.children.length > 0){ messageArea.textContent = 'まず装備を確定してください'; return; }
