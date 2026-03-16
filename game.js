@@ -129,6 +129,16 @@ let selectedHand = null;
 let equipTemp = [];
 let _overlayEl = null;
 
+const TUTORIAL_STEPS = [
+  { title:'勝利条件を覚えよう', text:'敵の手を両方とも0にすると勝利。\n自分の両手が0になると敗北です。' },
+  { title:'基本操作', text:'まず自分の手を1つ選び、次に敵の手をタップして攻撃します。\n攻撃すると選んだ手の値が敵に加算されます。' },
+  { title:'破壊の条件', text:'手の値がしきい値(通常5)以上になるとその手は破壊されて0になります。\nどの手を狙うかが重要です。' },
+  { title:'実践バトル', text:'固定シナリオで勝ち手順を体験しましょう。\n「実践バトル開始」で手順ガイド付きの模擬戦が始まります。' }
+];
+const tutorialBattleTemplate = { player:{left:1,right:1}, enemy:{left:2,right:1}, threshold:5 };
+const tutorialBattleState = { inBattle:false, selected:null, turn:0, player:{left:1,right:1}, enemy:{left:2,right:1} };
+let tutorialStepIndex = 0;
+
 /* ---------- DOM ---------- */
 const titleScreen = document.getElementById('titleScreen');
 const ruleScreen = document.getElementById('ruleScreen');
@@ -153,6 +163,23 @@ const bossAbilityArea = document.getElementById('bossAbilityArea');
 const clearScreen = document.getElementById('clearScreen');
 const endlessButton = document.getElementById('endlessButton');
 const backToTitleButton = document.getElementById('backToTitleButton');
+
+const tutorialScreen = document.getElementById('tutorialScreen');
+const tutorialButton = document.getElementById('tutorialButton');
+const tutorialStepLabel = document.getElementById('tutorialStepLabel');
+const tutorialTitle = document.getElementById('tutorialTitle');
+const tutorialText = document.getElementById('tutorialText');
+const tutorialPrevButton = document.getElementById('tutorialPrevButton');
+const tutorialNextButton = document.getElementById('tutorialNextButton');
+const tutorialCloseButton = document.getElementById('tutorialCloseButton');
+const tutorialBattleStartButton = document.getElementById('tutorialBattleStartButton');
+const tutorialBattleArea = document.getElementById('tutorialBattleArea');
+const tutorialBattleObjective = document.getElementById('tutorialBattleObjective');
+const tutorialBattleLog = document.getElementById('tutorialBattleLog');
+const tutorialPlayerLeft = document.getElementById('tutorialPlayerLeft');
+const tutorialPlayerRight = document.getElementById('tutorialPlayerRight');
+const tutorialEnemyLeft = document.getElementById('tutorialEnemyLeft');
+const tutorialEnemyRight = document.getElementById('tutorialEnemyRight');
 
 const hands = {
   playerLeft: document.getElementById('player-left'),
@@ -212,9 +239,9 @@ function loadBest(){ try { const b = Number(localStorage.getItem(BEST_KEY)); ret
 function saveBest(){ try { localStorage.setItem(BEST_KEY, String(gameState.bestStage)); } catch(e){} }
 
 /* ---------- screen helpers (single source of truth) ---------- */
-function showTitleScreen(){ if(titleScreen) titleScreen.style.display = 'flex'; if(ruleScreen) ruleScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; }
-function showGameScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'block'; }
-function showClearScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'flex'; }
+function showTitleScreen(){ if(titleScreen) titleScreen.style.display = 'flex'; if(ruleScreen) ruleScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; }
+function showGameScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'block'; }
+function showClearScreen(){ if(titleScreen) titleScreen.style.display = 'none'; if(ruleScreen) ruleScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'flex'; }
 
 /* ---------- seeding & reset ---------- */
 function seedInitialUnlocks(){ gameState.unlockedSkills = [{ id:'power', level:1 }, { id:'guard', level:1 }]; saveUnlocked(); }
@@ -310,6 +337,153 @@ function handleCounter(attackerIsEnemy, attackerSide, targetIsEnemy, targetSide)
   messageArea.textContent = `カウンター発動！攻撃者に +${counterLevel}`;
 }
 
+function showTutorialScreen(){
+  if(titleScreen) titleScreen.style.display = 'none';
+  if(ruleScreen) ruleScreen.style.display = 'none';
+  if(clearScreen) clearScreen.style.display = 'none';
+  const container = document.querySelector('.container');
+  if(container) container.style.display = 'none';
+  if(tutorialScreen) tutorialScreen.style.display = 'flex';
+  renderTutorialStep();
+}
+
+function renderTutorialStep(){
+  const step = TUTORIAL_STEPS[tutorialStepIndex] || TUTORIAL_STEPS[0];
+  if(tutorialStepLabel) tutorialStepLabel.textContent = `STEP ${tutorialStepIndex + 1} / ${TUTORIAL_STEPS.length}`;
+  if(tutorialTitle) tutorialTitle.textContent = step.title;
+  if(tutorialText) tutorialText.textContent = step.text;
+  document.querySelectorAll('.tutorial-dot').forEach((dot, idx) => dot.classList.toggle('active', idx === tutorialStepIndex));
+  if(tutorialPrevButton) tutorialPrevButton.disabled = tutorialStepIndex === 0;
+  if(tutorialNextButton) tutorialNextButton.disabled = tutorialStepIndex === TUTORIAL_STEPS.length - 1;
+  const isPracticeStep = tutorialStepIndex === TUTORIAL_STEPS.length - 1;
+  if(tutorialBattleStartButton) tutorialBattleStartButton.style.display = isPracticeStep ? 'inline-block' : 'none';
+  if(tutorialBattleArea && !isPracticeStep) tutorialBattleArea.style.display = 'none';
+}
+
+
+function resetTutorialBattle(){
+  tutorialBattleState.inBattle = true;
+  tutorialBattleState.selected = null;
+  tutorialBattleState.turn = 0;
+  tutorialBattleState.player = { ...tutorialBattleTemplate.player };
+  tutorialBattleState.enemy = { ...tutorialBattleTemplate.enemy };
+  if(tutorialBattleObjective) tutorialBattleObjective.textContent = '目標: 右手を選択して、敵の左手をタップ';
+  if(tutorialBattleLog) tutorialBattleLog.textContent = '固定スクリプト: 3手で勝利ルートを学びます。';
+  updateTutorialBattleUI();
+}
+
+function updateTutorialBattleUI(){
+  if(tutorialPlayerLeft) tutorialPlayerLeft.textContent = String(tutorialBattleState.player.left);
+  if(tutorialPlayerRight) tutorialPlayerRight.textContent = String(tutorialBattleState.player.right);
+  if(tutorialEnemyLeft) tutorialEnemyLeft.textContent = String(tutorialBattleState.enemy.left);
+  if(tutorialEnemyRight) tutorialEnemyRight.textContent = String(tutorialBattleState.enemy.right);
+
+  const pLeftAlive = tutorialBattleState.player.left > 0;
+  const pRightAlive = tutorialBattleState.player.right > 0;
+  const eLeftAlive = tutorialBattleState.enemy.left > 0;
+  const eRightAlive = tutorialBattleState.enemy.right > 0;
+
+  if(tutorialPlayerLeft) tutorialPlayerLeft.classList.toggle('destroyed', !pLeftAlive);
+  if(tutorialPlayerRight) tutorialPlayerRight.classList.toggle('destroyed', !pRightAlive);
+  if(tutorialEnemyLeft) tutorialEnemyLeft.classList.toggle('destroyed', !eLeftAlive);
+  if(tutorialEnemyRight) tutorialEnemyRight.classList.toggle('destroyed', !eRightAlive);
+
+  if(tutorialPlayerLeft) tutorialPlayerLeft.classList.toggle('selected', tutorialBattleState.selected === 'left');
+  if(tutorialPlayerRight) tutorialPlayerRight.classList.toggle('selected', tutorialBattleState.selected === 'right');
+}
+
+function tutorialEnemyScriptTurn(){
+  const aliveEnemy = ['left','right'].filter(k => tutorialBattleState.enemy[k] > 0);
+  if(aliveEnemy.length === 0) return;
+  const target = tutorialBattleState.player.left > 0 ? 'left' : 'right';
+  const source = tutorialBattleState.enemy.right > 0 ? 'right' : aliveEnemy[0];
+  const atk = tutorialBattleState.enemy[source];
+  tutorialBattleState.player[target] += atk;
+  if(tutorialBattleState.player[target] >= tutorialBattleTemplate.threshold){
+    tutorialBattleState.player[target] = 0;
+    if(tutorialBattleLog) tutorialBattleLog.textContent = `敵の固定行動: ${source}→${target}。あなたの${target === 'left' ? '左' : '右'}手が破壊されました。`;
+  } else if(tutorialBattleLog) {
+    tutorialBattleLog.textContent = `敵の固定行動: ${source}→${target}（+${atk}）。`;
+  }
+}
+
+function checkTutorialBattleEnd(){
+  const playerDown = tutorialBattleState.player.left === 0 && tutorialBattleState.player.right === 0;
+  const enemyDown = tutorialBattleState.enemy.left === 0 && tutorialBattleState.enemy.right === 0;
+  if(enemyDown){
+    tutorialBattleState.inBattle = false;
+    if(tutorialBattleObjective) tutorialBattleObjective.textContent = 'クリア！本編でも「破壊ラインの管理」を意識しよう';
+    if(tutorialBattleLog) tutorialBattleLog.textContent = '実践バトル成功！この流れで本編も攻略できます。';
+    if(tutorialBattleStartButton){
+      tutorialBattleStartButton.style.display = 'inline-block';
+      tutorialBattleStartButton.textContent = 'もう一度挑戦';
+    }
+    return true;
+  }
+  if(playerDown){
+    tutorialBattleState.inBattle = false;
+    if(tutorialBattleObjective) tutorialBattleObjective.textContent = '失敗。もう一度固定手順を試してみよう';
+    if(tutorialBattleLog) tutorialBattleLog.textContent = '敗北しました。右手→敵左→右手→敵右の順を試してください。';
+    if(tutorialBattleStartButton){
+      tutorialBattleStartButton.style.display = 'inline-block';
+      tutorialBattleStartButton.textContent = 'リトライ';
+    }
+    return true;
+  }
+  return false;
+}
+
+function handleTutorialPlayerSelect(side){
+  if(!tutorialBattleState.inBattle) return;
+  if(tutorialBattleState.player[side] <= 0){
+    if(tutorialBattleLog) tutorialBattleLog.textContent = 'その手は破壊されています。別の手を選んでください。';
+    return;
+  }
+  tutorialBattleState.selected = side;
+  if(tutorialBattleObjective) tutorialBattleObjective.textContent = side === 'right' ? '次: 敵の左手を攻撃' : 'このシナリオでは右手ルートが安全です';
+  updateTutorialBattleUI();
+}
+
+function handleTutorialEnemyTap(side){
+  if(!tutorialBattleState.inBattle) return;
+  if(!tutorialBattleState.selected){
+    if(tutorialBattleLog) tutorialBattleLog.textContent = '先に自分の手を選択してください。';
+    return;
+  }
+  if(tutorialBattleState.enemy[side] <= 0){
+    if(tutorialBattleLog) tutorialBattleLog.textContent = 'その敵手はすでに破壊されています。';
+    return;
+  }
+
+  const expected = [
+    { sel:'right', target:'left' },
+    { sel:'right', target:'right' },
+    { sel:'left', target:'right' }
+  ];
+  const step = expected[tutorialBattleState.turn] || null;
+  if(step && (step.sel !== tutorialBattleState.selected || step.target !== side)){
+    if(tutorialBattleLog) tutorialBattleLog.textContent = `この場面は「${step.sel === 'left' ? '左' : '右'}手→敵${step.target === 'left' ? '左' : '右'}」が正解です。`;
+    return;
+  }
+
+  const atk = tutorialBattleState.player[tutorialBattleState.selected];
+  tutorialBattleState.enemy[side] += atk;
+  if(tutorialBattleState.enemy[side] >= tutorialBattleTemplate.threshold){
+    tutorialBattleState.enemy[side] = 0;
+    if(tutorialBattleLog) tutorialBattleLog.textContent = `あなたの攻撃で敵の${side === 'left' ? '左' : '右'}手を破壊！`;
+  } else if(tutorialBattleLog) {
+    tutorialBattleLog.textContent = `あなたの攻撃: ${tutorialBattleState.selected}→${side}（+${atk}）`; 
+  }
+
+  tutorialBattleState.selected = null;
+  tutorialBattleState.turn += 1;
+  updateTutorialBattleUI();
+  if(checkTutorialBattleEnd()) return;
+  tutorialEnemyScriptTurn();
+  updateTutorialBattleUI();
+  checkTutorialBattleEnd();
+}
+
 /* ---------- init & title handling ---------- */
 function initGame(){
   const loaded = loadUnlocked();
@@ -323,9 +497,18 @@ function initGame(){
   messageArea && (messageArea.textContent = '');
   // attach handlers (overwrite)
   if(startButton) startButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'flex'; showTitleScreen(); if(ruleScreen) ruleScreen.style.display = 'flex'; };
+  if(tutorialButton) tutorialButton.onclick = () => { playSE('click', 0.5); tutorialStepIndex = 0; showTutorialScreen(); };
   if(resetButton) resetButton.onclick = () => { playSE('click', 0.5); if(confirm('スキルのアンロックを初期状態にリセットします。\nよろしいですか？')) { resetAllProgress(); updateUI(); } };
   if(ruleNextButton) ruleNextButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showGameScreen(); startGame(); };
   if(ruleBackButton) ruleBackButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showTitleScreen(); };
+  if(tutorialPrevButton) tutorialPrevButton.onclick = () => { playSE('click',0.5); tutorialStepIndex = Math.max(0, tutorialStepIndex - 1); renderTutorialStep(); };
+  if(tutorialNextButton) tutorialNextButton.onclick = () => { playSE('click',0.5); tutorialStepIndex = Math.min(TUTORIAL_STEPS.length - 1, tutorialStepIndex + 1); renderTutorialStep(); };
+  if(tutorialCloseButton) tutorialCloseButton.onclick = () => { playSE('click',0.5); showTitleScreen(); };
+  if(tutorialBattleStartButton) tutorialBattleStartButton.onclick = () => { playSE('click',0.5); if(tutorialBattleArea) tutorialBattleArea.style.display = 'block'; tutorialBattleStartButton.textContent = '実践バトルをリセット'; resetTutorialBattle(); };
+  if(tutorialPlayerLeft) tutorialPlayerLeft.onclick = () => handleTutorialPlayerSelect('left');
+  if(tutorialPlayerRight) tutorialPlayerRight.onclick = () => handleTutorialPlayerSelect('right');
+  if(tutorialEnemyLeft) tutorialEnemyLeft.onclick = () => handleTutorialEnemyTap('left');
+  if(tutorialEnemyRight) tutorialEnemyRight.onclick = () => handleTutorialEnemyTap('right');
   if(hands.playerLeft) hands.playerLeft.onclick = () => selectHand('left');
   if(hands.playerRight) hands.playerRight.onclick = () => selectHand('right');
   if(hands.enemyLeft) hands.enemyLeft.onclick = () => clickEnemyHand('left');

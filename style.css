@@ -160,3 +160,21 @@ hr{ border:none; height:1px; background:linear-gradient(90deg, rgba(255,255,255,
 .tutorial-progress{ display:flex; gap:8px; }
 .tutorial-dot{ width:10px; height:10px; border-radius:50%; background:rgba(255,255,255,.2); }
 .tutorial-dot.active{ background:var(--accent); box-shadow:0 0 8px rgba(255,209,102,.7); }
+
+.tutorial-battle{
+  width:min(620px,94vw);
+  background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:14px;
+  padding:14px;
+}
+.tutorial-battle-objective{ color:#ffd166; font-size:13px; font-weight:700; margin-bottom:10px; }
+.tutorial-battle-board{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.tutorial-battle-label{ font-size:12px; letter-spacing:.08em; opacity:.9; margin-bottom:6px; }
+.tutorial-mini-hands{ display:flex; gap:8px; }
+.tutorial-mini-hand{ width:54px; height:54px; border-radius:10px; border:1px solid rgba(255,255,255,.25); background:#1f2733; color:#fff; font-weight:700; font-size:18px; cursor:pointer; }
+.tutorial-mini-hand.enemy{ background:#3a1f1f; }
+.tutorial-mini-hand.player{ background:#1f2f3a; }
+.tutorial-mini-hand.selected{ outline:2px solid #ffd166; box-shadow:0 0 10px rgba(255,209,102,.5); }
+.tutorial-mini-hand.destroyed{ opacity:.45; cursor:default; }
+.tutorial-battle-log{ margin-top:10px; font-size:13px; color:#ddd; min-height:20px; }
