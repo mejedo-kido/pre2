@@ -141,8 +141,18 @@ const onlineState = {
   side: 'A',
   turn: 'A',
   hands: { A: { left: 1, right: 1 }, B: { left: 1, right: 1 } },
-  winner: null
+  winner: null,
+  skills: { A: [], B: [] }
 };
+
+function getOnlineSkillPool(){
+  return (SKILL_POOL || []).map(skill => ({
+    id: skill.id,
+    name: skill.name,
+    desc: skill.baseDesc || '',
+    rarity: skill.rarity || 'common'
+  }));
+}
 
 /* ---------- DOM ---------- */
 const titleScreen = document.getElementById('titleScreen');
@@ -199,6 +209,8 @@ const onlineJoinButton = document.getElementById('onlineJoinButton');
 const onlineLeaveButton = document.getElementById('onlineLeaveButton');
 const onlineBackButton = document.getElementById('onlineBackButton');
 const onlineStatus = document.getElementById('onlineStatus');
+const onlineSkillInfo = document.getElementById('onlineSkillInfo');
+const onlineLog = document.getElementById('onlineLog');
 const onlineSelfLeft = document.getElementById('online-self-left');
 const onlineSelfRight = document.getElementById('online-self-right');
 const onlineOppLeft = document.getElementById('online-opp-left');
@@ -438,7 +450,32 @@ function onlineResetHands(){
   onlineState.hands = { A: { left: 1, right: 1 }, B: { left: 1, right: 1 } };
   onlineState.turn = 'A';
   onlineState.winner = null;
+  onlineState.skills = { A: [], B: [] };
   onlineSelectedHand = null;
+  if(onlineLog) onlineLog.textContent = 'ここに対戦ログが表示されます。';
+}
+function pickOnlineSkills(count = 3){
+  const pool = getOnlineSkillPool();
+  const chosen = [];
+  while(chosen.length < count && pool.length > 0){
+    const skill = weightedRandomSkillFromList(pool);
+    if(!skill) break;
+    chosen.push({ ...skill });
+    const idx = pool.findIndex(s => s.id === skill.id);
+    if(idx >= 0) pool.splice(idx, 1);
+  }
+  return chosen;
+}
+function onlineHasSkill(side, skillId){
+  return (onlineState.skills[side] || []).some(s => s.id === skillId);
+}
+function onlineGetDestroyThresholdFor(side){
+  const base = 5;
+  const debuff = onlineHasSkill(side === 'A' ? 'B' : 'A', 'pierce') ? 1 : 0;
+  return Math.max(3, base - debuff);
+}
+function onlineWriteLog(text){
+  if(onlineLog) onlineLog.textContent = text || '';
 }
 function onlineOpenScreen(){
   if(titleScreen) titleScreen.style.display = 'none';
@@ -494,29 +531,69 @@ function onlineRender(){
       onlineStatus.textContent = `ルーム ${onlineState.roomId} / ${myTurn ? 'あなたのターン' : '相手のターン'}`;
     }
   }
+  if(onlineSkillInfo){
+    const mySkills = (onlineState.skills[onlineState.side] || []).map(s => s.name).join(' / ') || '—';
+    const oppSide = onlineState.side === 'A' ? 'B' : 'A';
+    const oppSkills = (onlineState.skills[oppSide] || []).map(s => s.name).join(' / ') || '—';
+    onlineSkillInfo.textContent = `あなた: ${mySkills} ｜ 相手: ${oppSkills}`;
+  }
 }
 function onlineApplyAction(side, fromHand, toHand){
   if(onlineState.winner) return false;
   const oppSide = side === 'A' ? 'B' : 'A';
-  const atk = toNum(onlineState.hands[side][fromHand]);
-  if(atk <= 0) return false;
+  const rawAtk = toNum(onlineState.hands[side][fromHand]);
+  if(rawAtk <= 0) return false;
   if(toNum(onlineState.hands[oppSide][toHand]) <= 0) return false;
+  let atk = rawAtk;
+  if(onlineHasSkill(side, 'power')) atk += 1;
+  if(onlineHasSkill(side, 'berserk') && rawAtk >= 4) atk += 1;
+  if(onlineHasSkill(oppSide, 'guard')) atk = Math.max(1, atk - 1);
+  const targetEl = side === onlineState.side
+    ? (toHand === 'left' ? onlineOppLeft : onlineOppRight)
+    : (toHand === 'left' ? onlineSelfLeft : onlineSelfRight);
   onlineState.hands[oppSide][toHand] = Math.min(HARD_CAP, toNum(onlineState.hands[oppSide][toHand]) + atk);
-  if(toNum(onlineState.hands[oppSide][toHand]) >= 5) onlineState.hands[oppSide][toHand] = 0;
+  showPopupText(targetEl, `+${atk}`, '#ffb3b3');
+  playSE('attack', 0.55);
+  flashScreen(.12);
+  const threshold = onlineGetDestroyThresholdFor(oppSide);
+  if(toNum(onlineState.hands[oppSide][toHand]) >= threshold){
+    onlineState.hands[oppSide][toHand] = 0;
+    showPopupText(targetEl, 'BREAK', '#ffd166');
+    playSE('destroy', 0.7);
+    flashScreen(.2);
+  }
+  if(onlineHasSkill(oppSide, 'counter') && toNum(onlineState.hands[oppSide][toHand]) > 0){
+    const attackerEl = side === onlineState.side
+      ? (fromHand === 'left' ? onlineSelfLeft : onlineSelfRight)
+      : (fromHand === 'left' ? onlineOppLeft : onlineOppRight);
+    onlineState.hands[side][fromHand] = Math.min(HARD_CAP, toNum(onlineState.hands[side][fromHand]) + 1);
+    showPopupText(attackerEl, '+1', '#ffd166');
+    onlineWriteLog('↺ カウンター発動！攻撃側の手に +1');
+  } else {
+    onlineWriteLog(`攻撃: ${atk}（破壊ライン ${threshold}）`);
+  }
   const dead = toNum(onlineState.hands[oppSide].left) === 0 && toNum(onlineState.hands[oppSide].right) === 0;
-  if(dead) onlineState.winner = side;
+  if(dead){
+    onlineState.winner = side;
+    playSE('victory', 0.7);
+  }
   else onlineState.turn = oppSide;
   return true;
 }
 function onlineSendState(){
-  onlineBroadcast({ type:'state', state: { hands: onlineState.hands, turn: onlineState.turn, winner: onlineState.winner } });
+  onlineBroadcast({ type:'state', state: { hands: onlineState.hands, turn: onlineState.turn, winner: onlineState.winner, skills: onlineState.skills } });
 }
 function onlineHandleMessage(ev){
   const msg = ev && ev.data ? ev.data : null;
   if(!msg || msg.from === onlineState.selfId || msg.roomId !== onlineState.roomId) return;
   if(msg.type === 'join-request' && onlineState.role === 'host'){
     onlineState.peerId = msg.from;
-    onlineBroadcast({ type:'join-accept', to: msg.from, hostId: onlineState.selfId, state: { hands: onlineState.hands, turn: onlineState.turn, winner: onlineState.winner } });
+    if(!onlineState.skills.A.length && !onlineState.skills.B.length){
+      onlineState.skills.A = pickOnlineSkills(3);
+      onlineState.skills.B = pickOnlineSkills(3);
+      onlineWriteLog('ランダムスキルを配布しました。');
+    }
+    onlineBroadcast({ type:'join-accept', to: msg.from, hostId: onlineState.selfId, state: { hands: onlineState.hands, turn: onlineState.turn, winner: onlineState.winner, skills: onlineState.skills } });
     onlineRender();
     return;
   }
@@ -526,7 +603,9 @@ function onlineHandleMessage(ev){
       onlineState.hands = msg.state.hands || onlineState.hands;
       onlineState.turn = msg.state.turn || 'A';
       onlineState.winner = msg.state.winner || null;
+      onlineState.skills = msg.state.skills || onlineState.skills;
     }
+    onlineWriteLog('ランダムスキルを受信しました。');
     onlineRender();
     return;
   }
@@ -534,6 +613,7 @@ function onlineHandleMessage(ev){
     onlineState.hands = msg.state.hands || onlineState.hands;
     onlineState.turn = msg.state.turn || onlineState.turn;
     onlineState.winner = msg.state.winner || null;
+    onlineState.skills = msg.state.skills || onlineState.skills;
     onlineSelectedHand = null;
     onlineRender();
     return;
@@ -560,6 +640,11 @@ function onlineConnect(role){
   onlineState.roomId = roomId;
   onlineState.side = role === 'host' ? 'A' : 'B';
   onlineResetHands();
+  if(role === 'host'){
+    onlineState.skills.A = pickOnlineSkills(3);
+    onlineState.skills.B = pickOnlineSkills(3);
+    onlineWriteLog('ランダムスキルを配布しました。相手の参加を待っています。');
+  }
   onlineChannel = new BroadcastChannel(`fd-online-${roomId}`);
   onlineChannel.onmessage = onlineHandleMessage;
   if(role === 'guest') onlineBroadcast({ type:'join-request' });
