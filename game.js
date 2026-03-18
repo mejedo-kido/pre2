@@ -1224,10 +1224,16 @@ function playerAttack(targetSide){
 function enemyTurn(){
   if(gameState.inBossReward) return;
   if(gameState.isTutorial){
-    const from = toNum(gameState.enemy.left) > 0 ? 'left' : 'right';
-    const to = 'left';
+    const tutorialEnemyAlive = ['left','right'].filter(side => toNum(gameState.enemy[side]) > 0);
+    const tutorialPlayerAlive = ['left','right'].filter(side => toNum(gameState.player[side]) > 0);
+    if(tutorialEnemyAlive.length === 0 || tutorialPlayerAlive.length === 0){
+      checkWinLose();
+      return;
+    }
+    const from = tutorialEnemyAlive.includes('left') ? 'left' : tutorialEnemyAlive[0];
+    const to = tutorialPlayerAlive.includes('left') ? 'left' : tutorialPlayerAlive[0];
     const attackerEl = (from === 'left' ? hands.enemyLeft : hands.enemyRight);
-    const targetEl = hands.playerLeft;
+    const targetEl = (to === 'left' ? hands.playerLeft : hands.playerRight);
     playSE('attack', 0.65);
     animateAttack(attackerEl, targetEl);
     const attackValue = Math.max(0, toNum(gameState.enemy[from]));
