@@ -15,7 +15,6 @@
 
     <div class="title-buttons">
       <button id="startButton" class="bigButton">START</button>
-      <button id="onlineButton" class="bigButton">オンライン対戦</button>
       <button id="tutorialButton" class="smallButton">チュートリアル</button>
       <button id="resetButton" class="smallButton">リセット（スキル初期化）</button>
     </div>
@@ -23,41 +22,6 @@
     <div class="bestStage">
       Best Stage : <span id="bestStageValue">1</span>
     </div>
-  </div>
-
-  <!-- ===== Online Battle Screen ===== -->
-  <div id="onlineScreen" class="screen" style="display:none; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:22px;">
-    <h2 style="margin:0">🌐 オンライン対戦（β）</h2>
-    <div style="font-size:13px; color:#ddd;">同じルームIDを入力した相手と 1vs1（※ BroadcastChannel のため同一ブラウザ系での対戦）</div>
-
-    <div class="online-setup">
-      <input id="onlineRoomInput" type="text" placeholder="ルームID（例: room-123）" />
-      <button id="onlineHostButton" class="smallButton">ルーム作成</button>
-      <button id="onlineJoinButton" class="smallButton">ルーム参加</button>
-      <button id="onlineLeaveButton" class="smallButton">退出</button>
-      <button id="onlineBackButton" class="smallButton">タイトルへ戻る</button>
-    </div>
-
-    <div id="onlineStatus" class="online-status">未接続</div>
-    <div id="onlineSkillInfo" class="online-skill-info">配布スキル: —</div>
-
-    <div class="online-board">
-      <div class="online-side">
-        <h3>相手</h3>
-        <div class="hands" style="margin:0;">
-          <div class="hand selectable" id="online-opp-left">1</div>
-          <div class="hand selectable" id="online-opp-right">1</div>
-        </div>
-      </div>
-      <div class="online-side">
-        <h3>あなた</h3>
-        <div class="hands" style="margin:0;">
-          <div class="hand selectable" id="online-self-left">1</div>
-          <div class="hand selectable" id="online-self-right">1</div>
-        </div>
-      </div>
-    </div>
-    <div id="onlineLog" class="online-log">ここに対戦ログが表示されます。</div>
   </div>
 
   <!-- ===== Tutorial Screen ===== -->
