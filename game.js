@@ -13,7 +13,7 @@ const SKILL_POOL = [
   { id:'power', type:'passive', baseDesc:'攻撃力 +level', name:'💥 パワーアップ', rarity:'rare' },
   { id:'guard', type:'passive', baseDesc:'防御力 +level', name:'🛡 ガード', rarity:'common' },
   { id:'berserk', type:'passive', baseDesc:'自分の手が4のとき攻撃UP', name:'⚡ バーサーク', rarity:'common' },
-  { id:'regen', type:'turn', baseDesc:'敵ターン後に自分のランダムな手を回復 ×level', name:'💚 リジェネ', rarity:'common' },
+  { id:'regen', type:'passive', baseDesc:'毎ターン終了時にランダムな手を1つ -1', name:'💚 リジェネ', rarity:'common' },
   { id:'double', type:'active', baseDesc:'次の攻撃が大幅に上昇', name:'⛏ ダブルストライク', rarity:'epic' },
   { id:'heal', type:'active', baseDesc:'自分の手を大回復', name:'✨ ヒール', rarity:'rare' },
   { id:'pierce', type:'passive', baseDesc:'相手の指の最大値を減らす', name:'🔩 ピアス', rarity:'epic' },
@@ -915,17 +915,16 @@ function getDestroyThreshold(attackerIsPlayer = true){
 }
 
 /* ---------- regen ---------- */
-function applyRegenToUnit(isEnemy, level){
+function applyRegenToUnit(isEnemy){
   const targetObj = isEnemy ? gameState.enemy : gameState.player;
   let sides = ['left','right']; if(isEnemy && gameState.enemyHasThirdHand) sides.push('third');
   sides = sides.filter(k => toNum(targetObj[k]) > 0); if(sides.length === 0) return;
-  for(let i=0;i<level;i++){
-    sides = (isEnemy && gameState.enemyHasThirdHand) ? ['left','right','third'].filter(k => toNum(targetObj[k]) > 0) : ['left','right'].filter(k => toNum(targetObj[k]) > 0);
-    if(sides.length === 0) break; const r = sides[rand(0, sides.length - 1)]; const cur = toNum(targetObj[r]); const newVal = safeDecrease(cur, 1);
-    if(isEnemy) gameState.enemy[r] = newVal; else gameState.player[r] = newVal;
-    const el = isEnemy ? (hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]) : (hands[r === 'left' ? 'playerLeft' : 'playerRight']);
-    showPopupText(el, `-${1}`, '#ff9e9e');
-  }
+  const r = sides[rand(0, sides.length - 1)];
+  const cur = toNum(targetObj[r]);
+  const newVal = safeDecrease(cur, 1);
+  if(isEnemy) gameState.enemy[r] = newVal; else gameState.player[r] = newVal;
+  const el = isEnemy ? (hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]) : (hands[r === 'left' ? 'playerLeft' : 'playerRight']);
+  showPopupText(el, '-1', '#ff9e9e');
 }
 
 /* ---------- POST-DESTRUCTION pipeline (centralized) ---------- */
@@ -1260,11 +1259,10 @@ function enemyTurn(){
     if(skill.remainingCooldown && skill.remainingCooldown > 0) return;
     if(skill.id === 'heal'){ const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0); if(candidates.length > 0 && Math.random() < 0.6){ const r = candidates[rand(0, candidates.length - 1)]; const amount = 1 + skill.level; const cur = toNum(gameState.enemy[r]); const nv = safeDecrease(cur, amount); gameState.enemy[r] = nv; const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]; showPopupText(el, `-${amount}`, '#ff9e9e'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
     if(skill.id === 'double'){ if(Math.random() < 0.35){ gameState.enemyDoubleMultiplier = 1 + skill.level; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; } }
-    if(skill.id === 'regen' && Math.random() < 0.3){
-  applyRegenToUnit(true, skill.level);
-  skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
-  messageArea.textContent = `敵が ${skill.name} を使用した`;
-}
+    if(skill.id === 'regen'){
+      applyRegenToUnit(true);
+      messageArea.textContent = `敵の ${skill.name} が発動した`;
+    }
     if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; }
     if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を準備`; }
     if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
@@ -1363,11 +1361,7 @@ function enemyTurn(){
     processDestroyedList(destroyed.filter(d => !d.ownerIsEnemy));
   }
 
-gameState.turnBuffs.forEach(tb => {
-  if(tb.payload && tb.payload.type === 'regen') {
-    applyRegenToUnit(false, tb.payload.value);
-  }
-});
+  if(hasEquipped('regen')) applyRegenToUnit(false);
    // at the end of enemyTurn before setting playerTurn true:
   tickTurnBuffs();
   tickEnemyTurnBuffs();
