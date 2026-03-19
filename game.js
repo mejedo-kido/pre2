@@ -31,7 +31,7 @@ const SKILL_POOL = [
   { id:'split', type:'active', baseDesc:'片手のみ生存かつ値≥2の時、その手を半分にして両手にする', name:'✂ 分割', rarity:'common' },
   { id:'freeze', type:'active', baseDesc:'相手の次のターンの攻撃を封じる', name:'🧊 フリーズ', rarity:'rare' },
   { id:'distribute', type:'active', baseDesc:'自分の左右の値を均等に分配する', name:'⚖️ 分配', rarity:'common' },
-  { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒を付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' }
+  { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒をlevelターン付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' }
 ];
 
 /* Boss abilities */
@@ -120,8 +120,8 @@ const gameState = {
   playerBattleModifiers: { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 },
   enemyBattleModifiers: { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 },
   playerShield: 0,
-  playerPoison: { left:false, right:false },
-  enemyPoison: { left:false, right:false, third:false },
+  playerPoison: { left:0, right:0 },
+  enemyPoison: { left:0, right:0, third:0 },
   playerSkipAttackTurns: 0,
   enemySkipAttackTurns: 0,
   playerRevengeUsed: false,
@@ -293,8 +293,8 @@ function startTutorialBattle(){
   gameState.enemySkills = [];
   gameState.enemyDoubleMultiplier = 1;
   gameState.playerShield = 0;
-  gameState.playerPoison = { left:false, right:false };
-  gameState.enemyPoison = { left:false, right:false, third:false };
+  gameState.playerPoison = { left:0, right:0 };
+  gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   selectedHand = null;
@@ -337,8 +337,8 @@ function resetAllProgress(){
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.playerShield = 0;
-  gameState.playerPoison = { left:false, right:false };
-  gameState.enemyPoison = { left:false, right:false, third:false };
+  gameState.playerPoison = { left:0, right:0 };
+  gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.awaitingEquip = false;
@@ -358,8 +358,8 @@ function resetFullGameToTitle(){
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.playerShield = 0;
-  gameState.playerPoison = { left:false, right:false };
-  gameState.enemyPoison = { left:false, right:false, third:false };
+  gameState.playerPoison = { left:0, right:0 };
+  gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.enemyHasThirdHand = false;
@@ -507,8 +507,8 @@ function startBattle(){
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.enemyBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.playerShield = 0;
-  gameState.playerPoison = { left:false, right:false };
-  gameState.enemyPoison = { left:false, right:false, third:false };
+  gameState.playerPoison = { left:0, right:0 };
+  gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.playerRevengeUsed = false;
@@ -915,23 +915,26 @@ function applyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId =
 function tickTurnBuffs(){ gameState.turnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.turnBuffs = gameState.turnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.equippedSkills || []).forEach(s => { if(s.remainingTurns > 0) s.remainingTurns = Math.max(0, s.remainingTurns - 1); }); }
 function applyEnemyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId === 'fortify') payload = { type:'enemyGuardBoost', value: level }; else if(skillId === 'teamPower') payload = { type:'teamPower', value: level }; else payload = { type: skillId, value: level }; gameState.enemyTurnBuffs.push({ skillId, remainingTurns: duration, payload }); }
 function tickEnemyTurnBuffs(){ gameState.enemyTurnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.enemyTurnBuffs = gameState.enemyTurnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.enemySkills || []).forEach(s => { if(s.remainingCooldown && s.remainingCooldown > 0) s.remainingCooldown = Math.max(0, s.remainingCooldown - 1); }); }
-function inflictPoison(targetIsEnemy, side){
+function inflictPoison(targetIsEnemy, side, turns = 1){
   const pool = targetIsEnemy ? gameState.enemyPoison : gameState.playerPoison;
   if(!pool) return;
-  pool[side] = true;
+  const t = Math.max(1, Number(turns) || 1);
+  pool[side] = Math.max(Number(pool[side] || 0), t);
 }
 function applyPoisonEndOfTurn(){
   const apply = (ownerIsEnemy, keys) => {
     const state = ownerIsEnemy ? gameState.enemy : gameState.player;
     const poison = ownerIsEnemy ? gameState.enemyPoison : gameState.playerPoison;
     keys.forEach(k => {
-      if(!poison || !poison[k]) return;
+      const remaining = poison ? Number(poison[k] || 0) : 0;
+      if(remaining <= 0) return;
+      poison[k] = Math.max(0, remaining - 1);
       if(toNum(state[k]) <= 0) return;
       state[k] = Math.min(HARD_CAP, toNum(state[k]) + 1);
       const el = ownerIsEnemy
         ? (k === 'left' ? hands.enemyLeft : (k === 'right' ? hands.enemyRight : hands.enemyThird))
         : (k === 'left' ? hands.playerLeft : hands.playerRight);
-      showPopupText(el, '毒 +1', '#8ff58f');
+      showPopupText(el, `毒 +1 (${poison[k]}T)`, '#8ff58f');
     });
   };
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
@@ -1242,7 +1245,8 @@ function playerAttack(targetSide){
   if(!Number.isFinite(newVal)) newVal = 0;
   gameState.enemy[targetSide] = newVal;
   if(hasEquipped('poisonHand')){
-    inflictPoison(true, targetSide);
+    const poisonTurns = Math.max(1, getEquippedLevel('poisonHand'));
+    inflictPoison(true, targetSide, poisonTurns);
     showPopupText(targetEl, '毒', '#8ff58f');
   }
 
@@ -1453,9 +1457,10 @@ function enemyTurn(){
   let curPlayer = toNum(gameState.player[to]);
   let newVal = curPlayer + remainingAttack; if(!Number.isFinite(newVal)) newVal = 0;
   gameState.player[to] = newVal;
-  const enemyHasPoisonHand = (gameState.enemySkills || []).some(s => s.id === 'poisonHand');
-  if(enemyHasPoisonHand){
-    inflictPoison(false, to);
+  const enemyPoisonHandSkill = (gameState.enemySkills || []).find(s => s.id === 'poisonHand');
+  if(enemyPoisonHandSkill){
+    const poisonTurns = Math.max(1, Number(enemyPoisonHandSkill.level || 1));
+    inflictPoison(false, to, poisonTurns);
     showPopupText(targetEl, '毒', '#8ff58f');
   }
 
