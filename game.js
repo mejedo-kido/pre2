@@ -5,7 +5,7 @@ const STORAGE_KEY = 'fd_unlocked_skills_v2';
 const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
-const SKILL_LEVEL_CAP = { pierce: 2, possession: 1, split: 1 };
+const SKILL_LEVEL_CAP = { power: 2, possession: 1, split: 1 };
 const HARD_CAP = 99;
 
 /* Skill pool (including new ones) */
