@@ -7,6 +7,7 @@ const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
 const SKILL_LEVEL_CAP = { pierce: 2, possession: 1, split: 1 };
 const HARD_CAP = 99;
+const RELIC_DROP_INTERVAL = 9;
 
 /* Skill pool (including new ones) */
 const SKILL_POOL = [
@@ -36,6 +37,17 @@ const SKILL_POOL = [
   { id:'riskyStrike', type:'passive', baseDesc:'毎ターン、攻撃バフが -4×level ～ +4×level でランダム変動（1ターン）', name:'🎲 リスキーストライク', rarity:'rare' },
   { id:'hades', type:'active', baseDesc:'相手のランダムな手に除外をlevelターン付与', name:'💀 ハーデス', rarity:'epic' },
   { id:'curse', type:'active', baseDesc:'相手の両手に呪いマークを付与（呪いマーク数だけ最大値-1）', name:'🕸 カース', rarity:'common' }
+];
+
+const RELIC_POOL = [
+  { id:'heavenMirror', name:'🪞 天の鏡', desc:'自分が受けたデバフを、相手の同じ手にも付与する' },
+  { id:'cursedIdol', name:'🧿 呪物', desc:'自身が付与する呪いマークの量が2倍になる' },
+  { id:'energyDrink', name:'🥤 エナジードリンク', desc:'アクティブスキルのCDが2減少する（最小1）' },
+  { id:'venomFlask', name:'🧪 猛毒瓶', desc:'毒ダメージが経過ターンごとに+1ずつ増える' },
+  { id:'bloodyAxe', name:'🪓 血濡れた斧', desc:'ディスラプトで指を0まで減らせる' },
+  { id:'reinforcedArmor', name:'🛡 強化装甲', desc:'基礎攻撃・基礎防御・指の最大値がそれぞれ+2' },
+  { id:'gigantism', name:'🫀 肥大化', desc:'自身の指の値が増えた分だけシールドを得る' },
+  { id:'panic', name:'😱 恐慌', desc:'相手の手を破壊時、相手全体に呪い+2と毒2ターンを付与' }
 ];
 
 /* Boss abilities */
@@ -143,7 +155,10 @@ const gameState = {
   isGameClear: false,
   powerLevel: 0,
   isTutorial: false,
-  tutorialBattleStep: 0
+  tutorialBattleStep: 0,
+  relics: [],
+  playerPoisonPower: { left:1, right:1 },
+  enemyPoisonPower: { left:1, right:1, third:1 }
 };
 
 let selectedHand = null;
@@ -254,6 +269,7 @@ function saveUnlocked(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(
 function loadUnlocked(){ try { const raw = localStorage.getItem(STORAGE_KEY); if(!raw) return null; const parsed = JSON.parse(raw); if(Array.isArray(parsed)){ if(parsed.length === 0) return []; if(typeof parsed[0] === 'string') return parsed.map(id=>({ id, level:1 })); if(typeof parsed[0] === 'object' && parsed[0].id) return parsed.map(o=>({ id:o.id, level:o.level||1 })); } } catch(e){} return null; }
 function loadBest(){ try { const b = Number(localStorage.getItem(BEST_KEY)); return Number.isFinite(b) && b > 0 ? b : 1; } catch(e){ return 1; } }
 function saveBest(){ try { localStorage.setItem(BEST_KEY, String(gameState.bestStage)); } catch(e){} }
+function hasRelic(id){ return (gameState.relics || []).some(r => r.id === id); }
 
 /* ---------- screen helpers (single source of truth) ---------- */
 function showTitleScreen(){ if(titleScreen) titleScreen.style.display = 'flex'; if(ruleScreen) ruleScreen.style.display = 'none'; if(tutorialScreen) tutorialScreen.style.display = 'none'; if(clearScreen) clearScreen.style.display = 'none'; const container = document.querySelector('.container'); if(container) container.style.display = 'none'; }
@@ -296,6 +312,7 @@ function startTutorialBattle(){
   gameState.enemyHasThirdHand = false;
   gameState.player = { left:1, right:1 };
   gameState.enemy = { left:2, right:1, third:0 };
+  gameState.relics = [];
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.enemyBase = { baseThreshold:5, baseAttack:0, baseDefense:0 };
   gameState.pendingActiveUse = null;
@@ -307,6 +324,8 @@ function startTutorialBattle(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerPoisonPower = { left:1, right:1 };
+  gameState.enemyPoisonPower = { left:1, right:1, third:1 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
   gameState.playerOverheatExcludePending = { left:false, right:false };
@@ -354,12 +373,15 @@ function resetAllProgress(){
   gameState.powerLevel = 0;
   gameState.isTutorial = false;
   gameState.tutorialBattleStep = 0;
+  gameState.relics = [];
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.bossEnemyThresholdMultiplier = 1;
   gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerPoisonPower = { left:1, right:1 };
+  gameState.enemyPoisonPower = { left:1, right:1, third:1 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
   gameState.playerOverheatExcludePending = { left:false, right:false };
@@ -389,6 +411,8 @@ function resetFullGameToTitle(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerPoisonPower = { left:1, right:1 };
+  gameState.enemyPoisonPower = { left:1, right:1, third:1 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
   gameState.playerOverheatExcludePending = { left:false, right:false };
@@ -400,6 +424,7 @@ function resetFullGameToTitle(){
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.enemyHasThirdHand = false;
+  gameState.relics = [];
   gameState.enemy = { left:1, right:1, third:0 };
   equipTemp = [];
   selectedHand = null;
@@ -427,8 +452,9 @@ function getSkillCooldown(skillId, level){
   };
   const b = base[skillId] || 3;
   const lv = Number(level || 1);
+  const relicCut = hasRelic('energyDrink') ? 2 : 0;
   // レベル1で base, レベル2で base-1 ... 最小1ターン
-  return Math.max(1, b - (lv - 1));
+  return Math.max(1, b - (lv - 1) - relicCut);
 }
 
 // ターン経過でクールダウンを減らす（敵ターンの最後で呼ぶ）
@@ -442,15 +468,42 @@ function tickSkillCooldowns(){
   renderEquipped();
 }
 function safeDecrease(cur, amount){ cur = toNum(cur); if(cur === 0) return 0; let newVal = cur - amount; if(newVal < 1) newVal = 1; return newVal; }
+function safeDecreaseWithFloor(cur, amount, floor = 1){ cur = toNum(cur); if(cur <= floor) return floor; let newVal = cur - amount; if(newVal < floor) newVal = floor; return newVal; }
+function addToHand(ownerIsEnemy, side, amount){
+  const a = Number(amount || 0);
+  if(a <= 0) return;
+  if(ownerIsEnemy){
+    gameState.enemy[side] = Math.min(HARD_CAP, toNum(gameState.enemy[side]) + a);
+    return;
+  }
+  gameState.player[side] = Math.min(HARD_CAP, toNum(gameState.player[side]) + a);
+  if(hasRelic('gigantism')){
+    gameState.playerShield = Math.min(HARD_CAP, Number(gameState.playerShield || 0) + a);
+  }
+}
+function getCurseInflictAmount(baseAmount){
+  const mul = hasRelic('cursedIdol') ? 2 : 1;
+  return Math.max(1, Number(baseAmount || 1) * mul);
+}
+function mirrorDebuffIfNeeded(kind, side, amount = 1){
+  if(!hasRelic('heavenMirror')) return;
+  if(typeof side !== 'string') return;
+  const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
+  if(!enemyKeys.includes(side)) return;
+  if(kind === 'excluded') inflictExcluded(true, side, amount, { mirrored:true });
+  if(kind === 'poison') inflictPoison(true, side, amount, { mirrored:true });
+  if(kind === 'curse') inflictCurseMarks(true, [side], amount, { mirrored:true });
+}
 function isHandExcluded(ownerIsEnemy, side){
   const pool = ownerIsEnemy ? gameState.enemyExcluded : gameState.playerExcluded;
   return !!(pool && Number(pool[side] || 0) > 0);
 }
-function inflictExcluded(targetIsEnemy, side, turns = 1){
+function inflictExcluded(targetIsEnemy, side, turns = 1, opts = {}){
   const pool = targetIsEnemy ? gameState.enemyExcluded : gameState.playerExcluded;
   if(!pool) return;
   const t = Math.max(1, Number(turns) || 1);
   pool[side] = Math.max(Number(pool[side] || 0), t);
+  if(!targetIsEnemy && !opts.mirrored) mirrorDebuffIfNeeded('excluded', side, t);
 }
 function tickExcludedStatus(){
   const tickPool = (pool, keys) => {
@@ -462,13 +515,14 @@ function tickExcludedStatus(){
   tickPool(gameState.playerExcluded, ['left', 'right']);
   tickPool(gameState.enemyExcluded, gameState.enemyHasThirdHand ? ['left', 'right', 'third'] : ['left', 'right']);
 }
-function inflictCurseMarks(targetIsEnemy, sides, amount = 1){
+function inflictCurseMarks(targetIsEnemy, sides, amount = 1, opts = {}){
   const pool = targetIsEnemy ? gameState.enemyCurseMarks : gameState.playerCurseMarks;
   if(!pool) return;
-  const add = Math.max(1, Number(amount) || 1);
+  const add = targetIsEnemy ? getCurseInflictAmount(amount) : Math.max(1, Number(amount) || 1);
   (Array.isArray(sides) ? sides : []).forEach(side => {
     if(typeof pool[side] === 'undefined') return;
     pool[side] = Math.min(HARD_CAP, Number(pool[side] || 0) + add);
+    if(!targetIsEnemy && !opts.mirrored) mirrorDebuffIfNeeded('curse', side, add);
   });
 }
 function getCurseReductionForSide(targetIsEnemy, side){
@@ -509,7 +563,7 @@ function handleCounter(attackerIsEnemy, attackerSide, targetIsEnemy, targetSide)
     const cur = toNum(gameState.enemy[attackerSide]); const newVal = Math.min(HARD_CAP, cur + counterLevel); gameState.enemy[attackerSide] = newVal;
     const el = hands[ attackerSide === 'left' ? 'enemyLeft' : (attackerSide === 'right' ? 'enemyRight' : 'enemyThird') ]; showPopupText(el, `+${counterLevel}`, '#ffd166');
   } else {
-    const cur = toNum(gameState.player[attackerSide]); const newVal = Math.min(HARD_CAP, cur + counterLevel); gameState.player[attackerSide] = newVal;
+    addToHand(false, attackerSide, counterLevel);
     const el = hands[ attackerSide === 'left' ? 'playerLeft' : 'playerRight' ]; showPopupText(el, `+${counterLevel}`, '#ffd166');
   }
   messageArea.textContent = `カウンター発動！攻撃者に +${counterLevel}`;
@@ -594,6 +648,8 @@ function startBattle(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerPoisonPower = { left:1, right:1 };
+  gameState.enemyPoisonPower = { left:1, right:1, third:1 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
   gameState.playerOverheatExcludePending = { left:false, right:false };
@@ -977,6 +1033,22 @@ function renderEquipped(){
   });
 }
 
+function renderRelicList(){
+  if(!unlockedList) return;
+  unlockedList.innerHTML = '';
+  const relics = gameState.relics || [];
+  if(relics.length === 0){
+    unlockedList.textContent = '(None)';
+    return;
+  }
+  relics.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'skill-card';
+    card.innerHTML = `<div class="skill-passive">${r.name}<div style="font-size:12px;opacity:.85">${r.desc}</div></div>`;
+    unlockedList.appendChild(card);
+  });
+}
+
 /* ---------- enemy skill UI ---------- */
 function updateEnemySkillUI(){
   if(!enemySkillArea) return;
@@ -1009,6 +1081,7 @@ function updateUI(){
   updateHand('playerLeft', gameState.player.left); updateHand('playerRight', gameState.player.right); updateHand('enemyLeft', gameState.enemy.left); updateHand('enemyRight', gameState.enemy.right);
   if(gameState.enemyHasThirdHand) updateHand('enemyThird', gameState.enemy.third || 0);
   updateEnemySkillUI(); updateBossUI();
+  renderRelicList();
   if(_overlayEl && _overlayEl.dataset.owner && _overlayEl.dataset.hand) refreshOverlayContent(_overlayEl.dataset.owner, _overlayEl.dataset.hand);
 }
 
@@ -1055,26 +1128,37 @@ function applyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId =
 function tickTurnBuffs(){ gameState.turnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.turnBuffs = gameState.turnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.equippedSkills || []).forEach(s => { if(s.remainingTurns > 0) s.remainingTurns = Math.max(0, s.remainingTurns - 1); }); }
 function applyEnemyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId === 'fortify') payload = { type:'enemyGuardBoost', value: level }; else if(skillId === 'teamPower') payload = { type:'teamPower', value: level }; else payload = { type: skillId, value: level }; gameState.enemyTurnBuffs.push({ skillId, remainingTurns: duration, payload }); }
 function tickEnemyTurnBuffs(){ gameState.enemyTurnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.enemyTurnBuffs = gameState.enemyTurnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.enemySkills || []).forEach(s => { if(s.remainingCooldown && s.remainingCooldown > 0) s.remainingCooldown = Math.max(0, s.remainingCooldown - 1); }); }
-function inflictPoison(targetIsEnemy, side, turns = 1){
+function inflictPoison(targetIsEnemy, side, turns = 1, opts = {}){
   const pool = targetIsEnemy ? gameState.enemyPoison : gameState.playerPoison;
   if(!pool) return;
   const t = Math.max(1, Number(turns) || 1);
   pool[side] = Math.max(Number(pool[side] || 0), t);
+  const powerPool = targetIsEnemy ? gameState.enemyPoisonPower : gameState.playerPoisonPower;
+  if(powerPool && Number(pool[side] || 0) > 0 && (!Number(powerPool[side]) || Number(powerPool[side]) < 1)) powerPool[side] = 1;
+  if(!targetIsEnemy && !opts.mirrored) mirrorDebuffIfNeeded('poison', side, t);
 }
 function applyPoisonEndOfTurn(){
   const apply = (ownerIsEnemy, keys) => {
     const state = ownerIsEnemy ? gameState.enemy : gameState.player;
     const poison = ownerIsEnemy ? gameState.enemyPoison : gameState.playerPoison;
+    const poisonPower = ownerIsEnemy ? gameState.enemyPoisonPower : gameState.playerPoisonPower;
     keys.forEach(k => {
       const remaining = poison ? Number(poison[k] || 0) : 0;
-      if(remaining <= 0) return;
+      if(remaining <= 0){
+        if(poisonPower && poisonPower[k] !== 1) poisonPower[k] = 1;
+        return;
+      }
+      const perTurnDamage = Math.max(1, Number(poisonPower && poisonPower[k] ? poisonPower[k] : 1));
       poison[k] = Math.max(0, remaining - 1);
       if(toNum(state[k]) <= 0) return;
-      state[k] = Math.min(HARD_CAP, toNum(state[k]) + 1);
+      if(ownerIsEnemy) state[k] = Math.min(HARD_CAP, toNum(state[k]) + perTurnDamage);
+      else addToHand(false, k, perTurnDamage);
       const el = ownerIsEnemy
         ? (k === 'left' ? hands.enemyLeft : (k === 'right' ? hands.enemyRight : hands.enemyThird))
         : (k === 'left' ? hands.playerLeft : hands.playerRight);
-      showPopupText(el, `毒 +1 (${poison[k]}T)`, '#8ff58f');
+      showPopupText(el, `毒 +${perTurnDamage} (${poison[k]}T)`, '#8ff58f');
+      if(hasRelic('venomFlask') && poison[k] > 0 && poisonPower) poisonPower[k] = perTurnDamage + 1;
+      else if(poison[k] <= 0 && poisonPower) poisonPower[k] = 1;
     });
   };
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
@@ -1248,8 +1332,7 @@ function applyPendingActiveOnPlayer(side){
  if(pending.id === 'haisuinojin'){
     const amount = 3;
     playSE('skill', 0.7);
-    const cur = toNum(gameState.player[side]);
-    gameState.player[side] = Math.min(HARD_CAP, cur + amount);
+    addToHand(false, side, amount);
     gameState.playerShield = (gameState.playerShield || 0) + (sk.level || 1);
     sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
     messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount}) — シールド +${sk.level}`;
@@ -1264,8 +1347,7 @@ function applyPendingActiveOnPlayer(side){
    if(pending.id === 'pumpUp'){
     const amount = sk.level || 1;
     playSE('skill', 0.7);
-    const cur = toNum(gameState.player[side]);
-    gameState.player[side] = Math.min(HARD_CAP, cur + amount);
+    addToHand(false, side, amount);
     sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
     messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount})`;
     const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
@@ -1334,7 +1416,7 @@ function applyPendingActiveOnEnemy(side){
     const key = side;
     const el = hands[key === 'left' ? 'enemyLeft' : (key === 'right' ? 'enemyRight' : 'enemyThird')];
     const cur = toNum(gameState.enemy[key]);
-    const newVal = safeDecrease(cur, amount);
+    const newVal = safeDecreaseWithFloor(cur, amount, hasRelic('bloodyAxe') ? 0 : 1);
     gameState.enemy[key] = newVal;
     showPopupText(el, `-${amount}`, '#ff9e9e');
     // set cooldown
@@ -1450,6 +1532,12 @@ function playerAttack(targetSide){
     if(tb) tb.payload = { type:'chainBoost', value: lvl };
     messageArea.textContent = `チェイン発動！次の攻撃が +${lvl}されます`;
   }
+  if(hasRelic('panic') && enemyDestroyed.length > 0){
+    const keys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
+    inflictCurseMarks(true, keys, 2);
+    keys.forEach(k => inflictPoison(true, k, 2));
+    messageArea.textContent = '恐慌発動！敵全体に 呪い+2 / 毒2T';
+  }
 
   // clear selection and advance turn
   clearHandSelection();
@@ -1510,7 +1598,7 @@ function enemyTurn(){
     animateAttack(attackerEl, targetEl);
     const attackValue = Math.max(0, toNum(gameState.enemy[from]));
     showDamage(targetEl, attackValue, '#ffb86b');
-    gameState.player[to] = toNum(gameState.player[to]) + attackValue;
+    addToHand(false, to, attackValue);
     const destroyed = detectDestroyTargets();
     if(destroyed.length > 0){ processDestroyedList(destroyed.filter(d => !d.ownerIsEnemy)); }
     gameState.playerTurn = true;
@@ -1672,9 +1760,7 @@ function enemyTurn(){
 
   showDamage(targetEl, attackValue, '#ffb86b');
 
-  let curPlayer = toNum(gameState.player[to]);
-  let newVal = curPlayer + remainingAttack; if(!Number.isFinite(newVal)) newVal = 0;
-  gameState.player[to] = newVal;
+  addToHand(false, to, remainingAttack);
 
   if(gameState.enemyOverheatExcludePending && gameState.enemyOverheatExcludePending[from]){
     inflictExcluded(true, from, 99);
@@ -1830,6 +1916,11 @@ function checkWinLose(){
     if(gameState.isBoss && !gameState.isEndless && gameState.stage >= gameState.maxStage){
       setTimeout(()=> triggerGameClear(), 350); return true;
     }
+    if(gameState.stage % RELIC_DROP_INTERVAL === 0){
+      messageArea.textContent = 'Relic Drop! レリックを1つ選んでください';
+      setTimeout(()=> showRelicSelection(), 400);
+      return true;
+    }
     if(gameState.isBoss){
       messageArea.textContent = 'Boss Defeated! 基礎ステータスを1つ選択してください';
       setTimeout(()=> showBossRewardSelection(), 350); return true;
@@ -1850,6 +1941,60 @@ function checkWinLose(){
 }
 
 /* ---------- rewards / boss rewards ---------- */
+function applyRelicEffect(relicId){
+  if(relicId === 'reinforcedArmor'){
+    gameState.baseStats.baseAttack = Number(gameState.baseStats.baseAttack || 0) + 2;
+    gameState.baseStats.baseDefense = Number(gameState.baseStats.baseDefense || 0) + 2;
+    gameState.baseStats.playerThreshold = Number(gameState.baseStats.playerThreshold || 5) + 2;
+    gameState.baseStats.maxFinger = Number(gameState.baseStats.maxFinger || 5) + 2;
+  }
+}
+function getRelicCandidates(){
+  const owned = new Set((gameState.relics || []).map(r => r.id));
+  const pool = RELIC_POOL.filter(r => !owned.has(r.id));
+  const picks = [];
+  const temp = pool.slice();
+  while(picks.length < 3 && temp.length > 0){
+    const idx = rand(0, temp.length - 1);
+    picks.push(temp.splice(idx, 1)[0]);
+  }
+  return picks;
+}
+function showRelicSelection(){
+  const picks = getRelicCandidates();
+  if(picks.length === 0){
+    messageArea.textContent = '取得可能なレリックがありません。通常報酬へ進みます';
+    setTimeout(() => {
+      if(gameState.isBoss) showBossRewardSelection();
+      else showRewardSelection();
+    }, 450);
+    return;
+  }
+  skillSelectArea.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'skill-choices';
+  picks.forEach(r => {
+    const btn = document.createElement('button');
+    btn.className = 'skill-btn node-btn rarity-epic';
+    btn.innerHTML = `<div style="font-weight:700">${r.name}</div><small style="opacity:.9">${r.desc}</small>`;
+    btn.onclick = () => {
+      playSE('click', 0.6);
+      gameState.relics.push({ id:r.id, name:r.name, desc:r.desc });
+      applyRelicEffect(r.id);
+      messageArea.textContent = `${r.name} を獲得しました`;
+      skillSelectArea.innerHTML = '';
+      updateUI();
+      flashScreen(.16);
+      setTimeout(() => {
+        gameState.stage++;
+        startBattle();
+      }, 650);
+    };
+    wrap.appendChild(btn);
+  });
+  skillSelectArea.appendChild(wrap);
+}
+
 function generateBaseStatRewards(){
   return getBaseStatRewardPool().sort(() => Math.random() - 0.5).slice(0, 3);
 }
