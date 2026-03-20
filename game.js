@@ -34,7 +34,8 @@ const SKILL_POOL = [
   { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒をlevelターン付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' },
   { id:'overheat', type:'active', baseDesc:'手を1つ選び、その値を最大値×(2+level)にする', name:'🔥 オーバーヒート', rarity:'rare' },
   { id:'riskyStrike', type:'passive', baseDesc:'毎ターン、攻撃バフが -4×level ～ +4×level でランダム変動（1ターン）', name:'🎲 リスキーストライク', rarity:'rare' },
-  { id:'hades', type:'active', baseDesc:'相手のランダムな手に除外をlevelターン付与', name:'💀 ハーデス', rarity:'epic' }
+  { id:'hades', type:'active', baseDesc:'相手のランダムな手に除外をlevelターン付与', name:'💀 ハーデス', rarity:'epic' },
+  { id:'curse', type:'active', baseDesc:'相手の両手に呪いマークを付与（呪いマーク数だけ最大値-1）', name:'🕸 カース', rarity:'common' }
 ];
 
 /* Boss abilities */
@@ -129,6 +130,8 @@ const gameState = {
   enemySkipAttackTurns: 0,
   playerExcluded: { left:0, right:0 },
   enemyExcluded: { left:0, right:0, third:0 },
+  playerCurseMarks: { left:0, right:0 },
+  enemyCurseMarks: { left:0, right:0, third:0 },
   playerRiskyStrikeBuff: 0,
   enemyRiskyStrikeBuff: 0,
   playerRevengeUsed: false,
@@ -304,6 +307,8 @@ function startTutorialBattle(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerCurseMarks = { left:0, right:0 };
+  gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
   gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
@@ -353,6 +358,8 @@ function resetAllProgress(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerCurseMarks = { left:0, right:0 };
+  gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
   gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
@@ -378,6 +385,8 @@ function resetFullGameToTitle(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerCurseMarks = { left:0, right:0 };
+  gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
   gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
@@ -405,6 +414,7 @@ function getSkillCooldown(skillId, level){
     distribute: 3,
     overheat: 8,
     hades: 8,
+    curse: 5,
     // その他のアクティブがあればここに追加
   };
   const b = base[skillId] || 3;
@@ -443,6 +453,20 @@ function tickExcludedStatus(){
   };
   tickPool(gameState.playerExcluded, ['left', 'right']);
   tickPool(gameState.enemyExcluded, gameState.enemyHasThirdHand ? ['left', 'right', 'third'] : ['left', 'right']);
+}
+function inflictCurseMarks(targetIsEnemy, sides, amount = 1){
+  const pool = targetIsEnemy ? gameState.enemyCurseMarks : gameState.playerCurseMarks;
+  if(!pool) return;
+  const add = Math.max(1, Number(amount) || 1);
+  (Array.isArray(sides) ? sides : []).forEach(side => {
+    if(typeof pool[side] === 'undefined') return;
+    pool[side] = Math.min(HARD_CAP, Number(pool[side] || 0) + add);
+  });
+}
+function getCurseReductionForSide(targetIsEnemy, side){
+  const pool = targetIsEnemy ? gameState.enemyCurseMarks : gameState.playerCurseMarks;
+  if(!pool) return 0;
+  return Math.max(0, Number(pool[side] || 0));
 }
 function rollRiskyStrikeBuff(isEnemy){
   const level = getSkillLevelOnUnit(isEnemy, 'riskyStrike');
@@ -564,6 +588,8 @@ function startBattle(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerCurseMarks = { left:0, right:0 };
+  gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
   gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
@@ -897,6 +923,17 @@ function renderEquipped(){
           updateUI();
           renderEquipped();
           checkWinLose();
+        } else if(s.id === 'curse'){
+          const curseAmount = Math.max(1, Number(s.level || 1));
+          inflictCurseMarks(true, ['left','right'], curseAmount);
+          s.remainingCooldown = getSkillCooldown(s.id, s.level);
+          showPopupText(hands.enemyLeft, `呪+${curseAmount}`, '#caa6ff');
+          showPopupText(hands.enemyRight, `呪+${curseAmount}`, '#caa6ff');
+          messageArea.textContent = `${s.name} 発動：敵の両手に呪いマーク +${curseAmount}`;
+          flashScreen(.12);
+          updateUI();
+          renderEquipped();
+          checkWinLose();
         } else if(s.id === 'fortify'){
           const duration = 2 * s.level;
           applyTurnBuff('fortify', s.level, duration);
@@ -970,8 +1007,12 @@ function updateHand(key, value){
   const isEnemy = key.startsWith('enemy');
   const side = key === 'playerLeft' ? 'left' : (key === 'playerRight' ? 'right' : (key === 'enemyLeft' ? 'left' : (key === 'enemyRight' ? 'right' : 'third')));
   const excluded = isHandExcluded(isEnemy, side);
+  const curseMarks = getCurseReductionForSide(isEnemy, side);
   if(el) {
-    el.textContent = excluded && v > 0 ? `${v} ⛔` : v;
+    const marks = [];
+    if(excluded && v > 0) marks.push('⛔');
+    if(curseMarks > 0 && v > 0) marks.push(`🕸${curseMarks}`);
+    el.textContent = marks.length ? `${v} ${marks.join(' ')}` : v;
     el.classList.toggle('zero', v === 0);
     el.classList.toggle('selected', !excluded && ((key === 'playerLeft' && selectedHand === 'left') || (key === 'playerRight' && selectedHand === 'right')));
     el.style.opacity = excluded ? '0.55' : '';
@@ -984,6 +1025,8 @@ function updateHand(key, value){
     displayThreshold *= (gameState.enemyBattleModifiers && gameState.enemyBattleModifiers.thresholdMultiplier) ? gameState.enemyBattleModifiers.thresholdMultiplier : 1;
   }
   if(key.startsWith('player')) displayThreshold *= (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier) ? gameState.playerBattleModifiers.thresholdMultiplier : 1;
+  const attackerIsPlayer = key.startsWith('enemy');
+  displayThreshold = getDestroyThreshold(attackerIsPlayer, side);
   if(bar) { const pct = displayThreshold > 0 ? Math.min(100, (v / displayThreshold) * 100) : Math.min(100, v * 16); bar.style.width = pct + '%'; }
 }
 
@@ -1040,7 +1083,7 @@ function computePlayerAttackBonus(handKey){
 }
 function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === 4) bonus += s.level * 2; }); bonus += Number(gameState.enemyRiskyStrikeBuff || 0); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
 /* ---------- destroy threshold ---------- */
-function getDestroyThreshold(attackerIsPlayer = true){
+function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
   const targetIsEnemy = attackerIsPlayer === true;
   let thresholdRaw;
     if(targetIsEnemy){
@@ -1066,6 +1109,11 @@ function getDestroyThreshold(attackerIsPlayer = true){
     (gameState.equippedSkills || []).forEach(s => { if(s.type === 'passive' && s.id === 'pierce') threshold = Math.max(2, threshold - Number(s.level || 0)); });
   } else {
     (gameState.enemySkills || []).forEach(s => { if(s.type === 'passive' && s.id === 'pierce') threshold = Math.max(2, threshold - Number(s.level || 0)); });
+  }
+  if(targetSide){
+    const targetIsEnemy = attackerIsPlayer === true;
+    const curseReduction = getCurseReductionForSide(targetIsEnemy, targetSide);
+    threshold = Math.max(2, threshold - curseReduction);
   }
   if(!Number.isFinite(threshold)) threshold = 5;
   threshold = Math.max(2, threshold);
@@ -1113,7 +1161,7 @@ function processDestroyedList(destroyedList){
     const revengeSkill = holderSkills.find(s => s.id === 'revenge');
     const revengeAlreadyUsed = ownerIsEnemy ? gameState.enemyRevengeUsed : gameState.playerRevengeUsed;
     if(revengeSkill && !revengeAlreadyUsed){
-      const threshold = getDestroyThreshold(ownerIsEnemy);
+      const threshold = getDestroyThreshold(ownerIsEnemy, side);
       const survivedValue = Math.max(1, toNum(threshold) - 1);
       if(ownerIsEnemy){
         gameState.enemy[side] = survivedValue;
@@ -1295,18 +1343,18 @@ function applyPendingActiveOnEnemy(side){
 function detectDestroyTargets(){
   const out = [];
   // check enemy hands
-  const enemyThreshold = getDestroyThreshold(true);
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
   enemyKeys.forEach(k => {
     const v = toNum(gameState.enemy[k]);
+    const enemyThreshold = getDestroyThreshold(true, k);
     if(v >= enemyThreshold){
       out.push({ ownerIsEnemy: true, side: k, originalValue: v });
     }
   });
   // check player hands
-  const playerThreshold = getDestroyThreshold(false);
   ['left','right'].forEach(k => {
     const v = toNum(gameState.player[k]);
+    const playerThreshold = getDestroyThreshold(false, k);
     if(v >= playerThreshold){
       out.push({ ownerIsEnemy: false, side: k, originalValue: v });
     }
@@ -1554,6 +1602,14 @@ function enemyTurn(){
         messageArea.textContent = `敵が ${skill.name} を使用した`;
       }
     }
+    if(skill.id === 'curse' && Math.random() < 0.35){
+      const curseAmount = Math.max(1, Number(skill.level || 1));
+      inflictCurseMarks(false, ['left', 'right'], curseAmount);
+      showPopupText(hands.playerLeft, `呪+${curseAmount}`, '#caa6ff');
+      showPopupText(hands.playerRight, `呪+${curseAmount}`, '#caa6ff');
+      skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
+      messageArea.textContent = `敵が ${skill.name} を使用した`;
+    }
   });
 
   updateEnemySkillUI();
@@ -1696,7 +1752,7 @@ function refreshOverlayContent(owner, hand){
   const value = isEnemy ? toNum(gameState.enemy[hand]) : toNum(gameState.player[hand]);
   const excludedTurns = isEnemy ? Number(gameState.enemyExcluded[hand] || 0) : Number(gameState.playerExcluded[hand] || 0);
   const attackerIsPlayer = isEnemy ? true : false;
-  const destroyThreshold = getDestroyThreshold(attackerIsPlayer);
+  const destroyThreshold = getDestroyThreshold(attackerIsPlayer, hand);
   const remaining = Number.isFinite(destroyThreshold) ? (destroyThreshold - value) : '—';
   const remText = (value === 0) ? '破壊済み (0)' : (remaining <= 0 ? '次の標準攻撃で破壊可能' : `破壊まであと ${remaining}`);
   let pierceInfo = '';
@@ -1714,6 +1770,8 @@ function refreshOverlayContent(owner, hand){
   let html = `<div style="font-weight:800; margin-bottom:6px">${isEnemy ? '敵' : 'あなた'} — ${hand === 'left' ? '左手' : (hand === 'right' ? '右手' : '第3の手')}</div>`;
   html += `<div>現在値: <b>${value}</b></div>`; html += `<div>最大値: <b>${destroyThreshold}</b> ${pierceInfo}</div>`; html += `<div style="margin-top:6px; font-weight:700">${remText}</div>`; html += `<div style="margin-top:6px; color:#ccc">${sampleText}</div>`;
   if(excludedTurns > 0) html += `<div style="margin-top:6px; color:#caa6ff">状態異常: 除外（残り ${excludedTurns}ターン）</div>`;
+  const curseMarks = isEnemy ? Number(gameState.enemyCurseMarks[hand] || 0) : Number(gameState.playerCurseMarks[hand] || 0);
+  if(curseMarks > 0) html += `<div style="margin-top:6px; color:#caa6ff">状態異常: 呪いマーク ${curseMarks}</div>`;
   if(buffs.length > 0) html += `<div style="margin-top:8px; color:#ffd">${buffs.join(' / ')}</div>`;
   const skills = isEnemy ? (gameState.enemySkills || []) : (gameState.equippedSkills || []).filter(s=>s.type==='passive' || s.type==='event' || s.type==='combo');
   if(skills && skills.length > 0){ const skillNames = skills.map(s => `${s.name} Lv${s.level||1}`); html += `<div style="margin-top:8px; font-size:12px; opacity:0.9">関連スキル: ${skillNames.join(' / ')}</div>`; }
