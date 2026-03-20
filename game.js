@@ -13,12 +13,12 @@ const RELIC_DROP_INTERVAL = 9;
 const SKILL_POOL = [
   { id:'power', type:'passive', baseDesc:'攻撃力 +level', name:'💥 パワーアップ', rarity:'rare' },
   { id:'guard', type:'passive', baseDesc:'防御力 +level', name:'🛡 ガード', rarity:'common' },
-  { id:'berserk', type:'passive', baseDesc:'自分の手が4のとき攻撃UP', name:'⚡ バーサーク', rarity:'common' },
+  { id:'berserk', type:'passive', baseDesc:'自分の手が(指の最大値-1)のとき攻撃UP', name:'⚡ バーサーク', rarity:'common' },
   { id:'regen', type:'passive', baseDesc:'毎ターン終了時にランダムな手を1つ -1', name:'💚 リジェネ', rarity:'common' },
   { id:'double', type:'active', baseDesc:'次の攻撃が大幅に上昇', name:'⛏ ダブルストライク', rarity:'epic' },
   { id:'heal', type:'active', baseDesc:'自分の手を大回復', name:'✨ ヒール', rarity:'rare' },
   { id:'pierce', type:'passive', baseDesc:'相手の指の最大値を減らす', name:'🔩 ピアス', rarity:'epic' },
-  { id:'chain', type:'combo', baseDesc:'敵手を破壊した次の攻撃UP', name:'🔗 チェイン', rarity:'common' },
+  { id:'chain', type:'combo', baseDesc:'手を破壊した次の攻撃が( level + 1 )倍', name:'🔗 チェイン', rarity:'common' },
   { id:'fortify', type:'turn', baseDesc:'自分にシールドを付与', name:'🏰 フォーティファイ', rarity:'rare' },
   { id:'revenge', type:'event', baseDesc:'破壊されるとき一度だけ耐え、最大値-1で踏みとどまる', name:'🔥 リベンジ', rarity:'rare' },
   { id:'disrupt', type:'active', baseDesc:'敵の手を減らす（最小1）', name:'🪓 ディスラプト', rarity:'common' },
@@ -26,7 +26,7 @@ const SKILL_POOL = [
   { id:'counter', type:'event', baseDesc:'攻撃を受けた時、相手の手にもダメージ', name:'↺ カウンター', rarity:'common' },
 
   // new skills
-  { id:'haisuinojin', type:'active', baseDesc:'自身の手+3、防御バフ付与', name:'⚔️ 背水の陣', rarity:'rare' },
+  { id:'haisuinojin', type:'active', baseDesc:'選択した手を(指の最大値-1)にし、防御バフ+level', name:'⚔️ 背水の陣', rarity:'rare' },
   { id:'pumpUp', type:'active', baseDesc:'自身の手を増やす', name:'💪 パンプアップ', rarity:'common' },
   { id:'possession', type:'passive', baseDesc:'戦闘開始時に左手を失い、基礎能力を2倍', name:'🕯 ポゼッション', rarity:'epic' },
   { id:'split', type:'active', baseDesc:'片手のみ生存かつ値≥2の時、その手を半分にして両手にする', name:'✂ 分割', rarity:'common' },
@@ -944,7 +944,7 @@ function renderEquipped(){
           messageArea.textContent = 'ディスラプト使用：敵の手を選んでください';
         } else if(s.id === 'haisuinojin'){
           gameState.pendingActiveUse = { id: 'haisuinojin', idx };
-          messageArea.textContent = '背水の陣使用：自分の手を選んでください（+3、シールド+Lv）';
+          messageArea.textContent = '背水の陣使用：自分の手を選んでください（最大値-1、防御+Lv）';
         } else if(s.id === 'pumpUp'){
           gameState.pendingActiveUse = { id: 'pumpUp', idx };
           messageArea.textContent = 'パンプアップ使用：自分の手を選んでください（+Lv）';
@@ -961,6 +961,10 @@ function renderEquipped(){
           flashScreen(.12);
           renderEquipped();
         } else if(s.id === 'distribute'){
+          if(toNum(gameState.player.left) <= 0 || toNum(gameState.player.right) <= 0){
+            messageArea.textContent = '分配は両手が生存している時のみ使用できます';
+            return;
+          }
           const total = toNum(gameState.player.left) + toNum(gameState.player.right);
           const half1 = Math.floor(total / 2);
           const half2 = Math.ceil(total / 2);
@@ -1061,7 +1065,7 @@ function updateEnemySkillUI(){
   });
   const buffs = gameState.enemyTurnBuffs.map(tb => {
     if(tb.skillId === 'fortify') return `防御+${tb.payload.value} (${tb.remainingTurns})`;
-    if(tb.skillId === 'chain') return `次攻撃+${tb.payload.value} (${tb.remainingTurns})`;
+    if(tb.skillId === 'chain') return `次攻撃×${tb.payload.value} (${tb.remainingTurns})`;
     if(tb.skillId === 'teamPower') return `味方全体+${tb.payload.value} (${tb.remainingTurns})`;
     return '';
   }).filter(Boolean);
@@ -1128,6 +1132,15 @@ function applyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId =
 function tickTurnBuffs(){ gameState.turnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.turnBuffs = gameState.turnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.equippedSkills || []).forEach(s => { if(s.remainingTurns > 0) s.remainingTurns = Math.max(0, s.remainingTurns - 1); }); }
 function applyEnemyTurnBuff(skillId, level, duration){ let payload = {}; if(skillId === 'fortify') payload = { type:'enemyGuardBoost', value: level }; else if(skillId === 'teamPower') payload = { type:'teamPower', value: level }; else payload = { type: skillId, value: level }; gameState.enemyTurnBuffs.push({ skillId, remainingTurns: duration, payload }); }
 function tickEnemyTurnBuffs(){ gameState.enemyTurnBuffs.forEach(tb => tb.remainingTurns = Math.max(0, tb.remainingTurns - 1)); gameState.enemyTurnBuffs = gameState.enemyTurnBuffs.filter(tb => tb.remainingTurns > 0); (gameState.enemySkills || []).forEach(s => { if(s.remainingCooldown && s.remainingCooldown > 0) s.remainingCooldown = Math.max(0, s.remainingCooldown - 1); }); }
+function getChainMultiplier(isEnemy){
+  const buffs = isEnemy ? (gameState.enemyTurnBuffs || []) : (gameState.turnBuffs || []);
+  const chainBuff = buffs.find(tb => tb.payload && tb.payload.type === 'chainNextAttackMultiplier');
+  return chainBuff ? Math.max(1, Number(chainBuff.payload.value || 1)) : 1;
+}
+function consumeChainMultiplier(isEnemy){
+  const key = isEnemy ? 'enemyTurnBuffs' : 'turnBuffs';
+  gameState[key] = (gameState[key] || []).filter(tb => !(tb.payload && tb.payload.type === 'chainNextAttackMultiplier'));
+}
 function inflictPoison(targetIsEnemy, side, turns = 1, opts = {}){
   const pool = targetIsEnemy ? gameState.enemyPoison : gameState.playerPoison;
   if(!pool) return;
@@ -1167,15 +1180,15 @@ function applyPoisonEndOfTurn(){
 }
 
 function computePlayerAttackBonus(handKey){
-  let bonus = 0; (gameState.equippedSkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.player[handKey]) === 4) bonus += s.level * 2; });
+  let bonus = 0; (gameState.equippedSkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.player[handKey]) === (getMaxFingerForPlayer() - 1)) bonus += s.level * 2; });
   bonus += Number(gameState.playerRiskyStrikeBuff || 0);
-  gameState.turnBuffs.forEach(tb => { if(tb.payload){ if(tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload.type === 'teamPower') bonus += tb.payload.value; } });
+  gameState.turnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; });
   const baseAtk = (gameState.baseStats && gameState.baseStats.baseAttack) ? Number(gameState.baseStats.baseAttack) : 0;
   const atkMul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.attackMultiplier) ? gameState.playerBattleModifiers.attackMultiplier : 1;
   bonus += baseAtk * atkMul;
   return bonus;
 }
-function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === 4) bonus += s.level * 2; }); bonus += Number(gameState.enemyRiskyStrikeBuff || 0); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
+function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === (getMaxFingerForEnemy() - 1)) bonus += s.level * 2; }); bonus += Number(gameState.enemyRiskyStrikeBuff || 0); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
 /* ---------- destroy threshold ---------- */
 function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
   const targetIsEnemy = attackerIsPlayer === true;
@@ -1281,7 +1294,7 @@ function processDestroyedList(destroyedList){
 
       // only revive by mod if boss actually has reincarnation ability
       if(bossHasReincarnation){
-        const maxFinger = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.maxFinger))) ? Number(gameState.baseStats.maxFinger) : 5;
+        const maxFinger = getDestroyThreshold(true, side);
         const mod = Number(originalValue) % Number(maxFinger);
         if(mod !== 0){
           gameState.enemy[side] = mod;
@@ -1330,14 +1343,15 @@ function applyPendingActiveOnPlayer(side){
     return;
   }
  if(pending.id === 'haisuinojin'){
-    const amount = 3;
     playSE('skill', 0.7);
-    addToHand(false, side, amount);
-    gameState.playerShield = (gameState.playerShield || 0) + (sk.level || 1);
+    const maxFinger = getMaxFingerForPlayer();
+    const nextValue = Math.max(1, Number(maxFinger) - 1);
+    gameState.player[side] = nextValue;
+    applyTurnBuff('fortify', sk.level || 1, 2);
     sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
-    messageArea.textContent = `${sk.name} を ${side} に使用しました (+${amount}) — シールド +${sk.level}`;
+    messageArea.textContent = `${sk.name} を ${side} に使用しました（${nextValue} に変更 / 防御+${sk.level}）`;
     const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
-    showPopupText(el, `+${amount}`, '#ffd166');
+    showPopupText(el, `${nextValue}`, '#ffd166');
     gameState.pendingActiveUse = null;
     updateUI();
     renderEquipped();
@@ -1420,11 +1434,14 @@ function applyPendingActiveOnEnemy(side){
     gameState.enemy[key] = newVal;
     showPopupText(el, `-${amount}`, '#ff9e9e');
     // set cooldown
-    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+   sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
     messageArea.textContent = `${sk.name} を ${key} に使用しました (-${amount})`;
     gameState.pendingActiveUse = null;
+    const destroyed = detectDestroyTargets();
+    if(destroyed.length > 0) processDestroyedList(destroyed);
     updateUI();
     renderEquipped();
+    checkWinLose();
   }
 }
 /* ---------- central destroy-detection helpers ---------- */
@@ -1484,6 +1501,8 @@ function playerAttack(targetSide){
   const defense = computeDefenseForTarget(true);
 
   let multiplier = gameState.doubleMultiplier || 1;
+  const chainMultiplier = getChainMultiplier(false);
+  if(chainMultiplier > 1) multiplier *= chainMultiplier;
   gameState.doubleMultiplier = 1;
   if(multiplier > 1){
     const idx = (gameState.equippedSkills || []).findIndex(s => s.id === 'double' && !s.used);
@@ -1492,6 +1511,7 @@ function playerAttack(targetSide){
 
   let rawAdded = baseAtk * multiplier;
   const added = Math.max(0, rawAdded - defense);
+  if(chainMultiplier > 1) consumeChainMultiplier(false);
 
   showDamage(targetEl, baseAtk);
 
@@ -1527,10 +1547,10 @@ function playerAttack(targetSide){
 
   if(enemyDestroyed.some(d => d.side === targetSide) && hasEquipped('chain')){
     const lvl = getEquippedLevel('chain');
-    applyTurnBuff('chainBoost', lvl, 1);
+    applyTurnBuff('chain', lvl, 99);
     const tb = gameState.turnBuffs[gameState.turnBuffs.length - 1];
-    if(tb) tb.payload = { type:'chainBoost', value: lvl };
-    messageArea.textContent = `チェイン発動！次の攻撃が +${lvl}されます`;
+    if(tb) tb.payload = { type:'chainNextAttackMultiplier', value: (lvl + 1) };
+    messageArea.textContent = `チェイン発動！次の攻撃が ×${lvl + 1} になります`;
   }
   if(hasRelic('panic') && enemyDestroyed.length > 0){
     const keys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
@@ -1616,7 +1636,9 @@ function enemyTurn(){
   const aliveEnemy = enemyKeys.filter(s => toNum(gameState.enemy[s]) > 0 && !isHandExcluded(true, s));
   if(alivePlayer.length === 0 || aliveEnemy.length === 0) return;
 
+ let enemyTurnShouldEnd = false;
  (gameState.enemySkills || []).forEach(skill => {
+    if(enemyTurnShouldEnd) return;
     if(skill.remainingCooldown && skill.remainingCooldown > 0) return;
     if(skill.id === 'heal'){ const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0); if(candidates.length > 0 && Math.random() < 0.6){ const r = candidates[rand(0, candidates.length - 1)]; const amount = 1 + skill.level; const cur = toNum(gameState.enemy[r]); const nv = safeDecrease(cur, amount); gameState.enemy[r] = nv; const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')]; showPopupText(el, `-${amount}`, '#ff9e9e'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
     if(skill.id === 'double'){ if(Math.random() < 0.35){ gameState.enemyDoubleMultiplier = 1 + skill.level; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; } }
@@ -1625,20 +1647,20 @@ function enemyTurn(){
       messageArea.textContent = `敵の ${skill.name} が発動した`;
     }
     if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; }
-    if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を準備`; }
-    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0 && !isHandExcluded(false, k)); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
+    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0 && !isHandExcluded(false, k)); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; const destroyed = detectDestroyTargets(); if(destroyed.length > 0) processDestroyedList(destroyed); if(checkWinLose()) enemyTurnShouldEnd = true; } }
     if(skill.id === 'teamPower' && Math.random() < 0.2){ const duration = 2 * skill.level; applyEnemyTurnBuff('teamPower', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用（味方全体強化）`; }
     if(skill.id === 'haisuinojin' && Math.random() < 0.3){
       const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0 && !isHandExcluded(true, k));
       if(candidates.length > 0){
         const r = candidates[rand(0, candidates.length - 1)];
         const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')];
-        gameState.enemy[r] = Math.min(HARD_CAP, toNum(gameState.enemy[r]) + 3);
-        const duration = 2 * (skill.level || 1);
-        applyEnemyTurnBuff('fortify', skill.level, duration);
-        showPopupText(el, '+3', '#ffd166');
+        const maxFinger = getMaxFingerForEnemy();
+        const nextValue = Math.max(1, Number(maxFinger) - 1);
+        gameState.enemy[r] = nextValue;
+        applyEnemyTurnBuff('fortify', skill.level, 2);
+        showPopupText(el, `${nextValue}`, '#ffd166');
         skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
-        messageArea.textContent = `敵が ${skill.name} を使用した（+3 / 防御上昇）`;
+        messageArea.textContent = `敵が ${skill.name} を使用した（${nextValue} / 防御+${skill.level}）`;
       }
     }
     if(skill.id === 'pumpUp' && Math.random() < 0.35){
@@ -1675,6 +1697,7 @@ function enemyTurn(){
       messageArea.textContent = `敵が ${skill.name} を使用した（次ターン攻撃不可）`;
     }
     if(skill.id === 'distribute' && Math.random() < 0.35){
+      if(toNum(gameState.enemy.left) <= 0 || toNum(gameState.enemy.right) <= 0) return;
       const total = toNum(gameState.enemy.left) + toNum(gameState.enemy.right);
       const half1 = Math.floor(total / 2);
       const half2 = Math.ceil(total / 2);
@@ -1720,6 +1743,7 @@ function enemyTurn(){
       messageArea.textContent = `敵が ${skill.name} を使用した`;
     }
   });
+  if(enemyTurnShouldEnd) return;
 
   updateEnemySkillUI();
 
@@ -1745,9 +1769,14 @@ function enemyTurn(){
   const defense = computeDefenseForTarget(false) + (baseDef * playerDefMul);
   attackValue = Math.max(0, attackValue - defense);
 
-  const multiplier = gameState.enemyDoubleMultiplier || 1; gameState.enemyDoubleMultiplier = 1; attackValue = attackValue * multiplier;
+  let multiplier = gameState.enemyDoubleMultiplier || 1;
+  const enemyChainMultiplier = getChainMultiplier(true);
+  if(enemyChainMultiplier > 1) multiplier *= enemyChainMultiplier;
+  gameState.enemyDoubleMultiplier = 1;
+  attackValue = attackValue * multiplier;
+  if(enemyChainMultiplier > 1) consumeChainMultiplier(true);
 
-  gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'chainBoost') attackValue += tb.payload.value; if(tb.payload && tb.payload.type === 'teamPower') attackValue += tb.payload.value; });
+  gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'teamPower') attackValue += tb.payload.value; });
 
   // shield absorption
   let remainingAttack = attackValue;
@@ -1782,6 +1811,15 @@ function enemyTurn(){
   const destroyed = detectDestroyTargets();
   if(destroyed.length > 0){
     processDestroyedList(destroyed.filter(d => !d.ownerIsEnemy));
+  }
+  const playerDestroyed = destroyed.filter(d => !d.ownerIsEnemy);
+  if(playerDestroyed.some(d => d.side === to) && (gameState.enemySkills || []).some(s => s.id === 'chain')){
+    const chainSkill = (gameState.enemySkills || []).find(s => s.id === 'chain');
+    const lvl = Math.max(1, Number(chainSkill.level || 1));
+    applyEnemyTurnBuff('chain', lvl, 99);
+    const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1];
+    if(tb) tb.payload = { type:'chainNextAttackMultiplier', value:(lvl + 1) };
+    messageArea.textContent = `敵のチェイン発動！次の攻撃が ×${lvl + 1}`;
   }
 
   if(hasEquipped('regen')) applyRegenToUnit(false);
@@ -1874,8 +1912,8 @@ function refreshOverlayContent(owner, hand){
   if(attackerIsPlayer){ const pierceLv = getEquippedLevel('pierce') || 0; if(pierceLv > 0) pierceInfo = `（プレイヤーのピアス: Lv${pierceLv} が適用）`; }
   else { const enemyPierce = (gameState.enemySkills || []).filter(s=>s.id==='pierce').reduce((sum,s)=>sum+(s.level||0),0); if(enemyPierce > 0) pierceInfo = `（敵のピアス: Lv${enemyPierce} が適用）`; }
   const buffs = [];
-  if(isEnemy){ (gameState.enemyTurnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'enemyGuardBoost' || tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainBoost') buffs.push(`次攻撃+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
-  else { (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainBoost') buffs.push(`次攻撃+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
+  if(isEnemy){ (gameState.enemyTurnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'enemyGuardBoost' || tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainNextAttackMultiplier') buffs.push(`次攻撃×${tb.payload.value}`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
+  else { (gameState.turnBuffs || []).forEach(tb => { if(tb.payload && tb.remainingTurns>0){ if(tb.payload.type === 'guardBoost') buffs.push(`防御+${tb.payload.value} (${tb.remainingTurns}ターン)`); if(tb.payload.type === 'chainNextAttackMultiplier') buffs.push(`次攻撃×${tb.payload.value}`); if(tb.payload.type === 'teamPower') buffs.push(`味方全体+${tb.payload.value} (${tb.remainingTurns}ターン)`); } }); }
   let attackerDouble = (attackerIsPlayer ? gameState.doubleMultiplier : gameState.enemyDoubleMultiplier) || 1;
   const attackerDoubleText = attackerDouble > 1 ? `（次の攻撃が×${attackerDouble}）` : '';
   let sampleAtt = 0;
@@ -2037,18 +2075,29 @@ function showBaseRewardSelection(rewards){
 }
 function showRewardSelection(){
   const unlockedIds = (gameState.unlockedSkills || []).map(u=>u.id);
-  const notUnlocked = SKILL_POOL.filter(s => !unlockedIds.includes(s.id));
   const picks = [];
-  const tempPool = notUnlocked.slice();
-  while(picks.length < 3 && tempPool.length > 0){
-    const pick = weightedRandomSkillFromList(tempPool);
-    if(!pick) break;
-    picks.push({ id: pick.id, isNew:true });
-    const idx = tempPool.findIndex(x=>x.id===pick.id); if(idx!==-1) tempPool.splice(idx,1);
-  }
   const getCap = (skillId) => SKILL_LEVEL_CAP[skillId] || MAX_SKILL_LEVEL;
-  const upgradeCandidates = (gameState.unlockedSkills || []).filter(u => { const cap = getCap(u.id); return (u.level || 1) < cap; }).map(u => ({ id: u.id, level: u.level, isUpgrade:true }));
-  while(picks.length < 3 && upgradeCandidates.length > 0){ const u = upgradeCandidates.shift(); picks.push({ id: u.id, isUpgrade:true }); }
+  const rewardPool = SKILL_POOL.map(def => {
+    const unlocked = (gameState.unlockedSkills || []).find(u => u.id === def.id);
+    const isUpgrade = !!(unlocked && (unlocked.level || 1) < getCap(def.id));
+    const isNew = !unlocked;
+    if(!isUpgrade && !isNew) return null;
+    const baseWeight = getSkillWeight(def);
+    const weight = isUpgrade ? baseWeight * 5 : baseWeight;
+    return { id:def.id, isUpgrade, isNew, weight };
+  }).filter(Boolean);
+  while(picks.length < 3 && rewardPool.length > 0){
+    const total = rewardPool.reduce((sum, e) => sum + Number(e.weight || 0), 0);
+    let r = Math.random() * total;
+    let selected = rewardPool[0];
+    for(const entry of rewardPool){
+      r -= Number(entry.weight || 0);
+      if(r <= 0){ selected = entry; break; }
+    }
+    picks.push({ id:selected.id, isUpgrade:selected.isUpgrade, isNew:selected.isNew });
+    const idx = rewardPool.findIndex(x => x.id === selected.id);
+    if(idx !== -1) rewardPool.splice(idx, 1);
+  }
   if(picks.length < 3){ const remainingNotUnlocked = SKILL_POOL.filter(s => !picks.some(p=>p.id===s.id)); for(const s of remainingNotUnlocked){ if(picks.length >= 3) break; if(!unlockedIds.includes(s.id)) picks.push({ id: s.id, isNew:true }); } }
   if(picks.length === 0){ const baseRewards = generateBaseStatRewards(); showBaseRewardSelection(baseRewards); return; }
   skillSelectArea.innerHTML = ''; messageArea.textContent = '報酬スキルを1つ選んでください（永久アンロック / アップグレード）';
