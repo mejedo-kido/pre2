@@ -25,7 +25,7 @@ const SKILL_POOL = [
   { id:'counter', type:'event', baseDesc:'攻撃を受けた時、相手の手にもダメージ', name:'↺ カウンター', rarity:'common' },
 
   // new skills
-  { id:'overheat', type:'active', baseDesc:'自身の手+3、防御バフ付与', name:'🔥 オーバーヒート', rarity:'rare' },
+  { id:'haisuinojin', type:'active', baseDesc:'自身の手+3、防御バフ付与', name:'⚔️ 背水の陣', rarity:'rare' },
   { id:'pumpUp', type:'active', baseDesc:'自身の手を増やす', name:'💪 パンプアップ', rarity:'common' },
   { id:'possession', type:'passive', baseDesc:'戦闘開始時に左手を失い、基礎能力を2倍', name:'🕯 ポゼッション', rarity:'epic' },
   { id:'split', type:'active', baseDesc:'片手のみ生存かつ値≥2の時、その手を半分にして両手にする', name:'✂ 分割', rarity:'common' },
@@ -378,7 +378,7 @@ function getSkillCooldown(skillId, level){
     heal: 4,
     fortify: 4,
     disrupt: 3,
-    overheat: 4,
+    haisuinojin: 4,
     pumpUp: 3,
     split: 8,
     freeze: 8,
@@ -791,9 +791,9 @@ function renderEquipped(){
         } else if(s.id === 'disrupt'){
           gameState.pendingActiveUse = { id: 'disrupt', idx };
           messageArea.textContent = 'ディスラプト使用：敵の手を選んでください';
-        } else if(s.id === 'overheat'){
-          gameState.pendingActiveUse = { id: 'overheat', idx };
-          messageArea.textContent = 'オーバーヒート使用：自分の手を選んでください（+3、シールド+Lv）';
+        } else if(s.id === 'haisuinojin'){
+          gameState.pendingActiveUse = { id: 'haisuinojin', idx };
+          messageArea.textContent = '背水の陣使用：自分の手を選んでください（+3、シールド+Lv）';
         } else if(s.id === 'pumpUp'){
           gameState.pendingActiveUse = { id: 'pumpUp', idx };
           messageArea.textContent = 'パンプアップ使用：自分の手を選んでください（+Lv）';
@@ -1099,7 +1099,7 @@ function applyPendingActiveOnPlayer(side){
     renderEquipped();
     return;
   }
- if(pending.id === 'overheat'){
+ if(pending.id === 'haisuinojin'){
     const amount = 3;
     playSE('skill', 0.7);
     const cur = toNum(gameState.player[side]);
@@ -1356,7 +1356,7 @@ function enemyTurn(){
     if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を準備`; }
     if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
     if(skill.id === 'teamPower' && Math.random() < 0.2){ const duration = 2 * skill.level; applyEnemyTurnBuff('teamPower', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用（味方全体強化）`; }
-    if(skill.id === 'overheat' && Math.random() < 0.3){
+    if(skill.id === 'haisuinojin' && Math.random() < 0.3){
       const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
       if(candidates.length > 0){
         const r = candidates[rand(0, candidates.length - 1)];
@@ -1508,7 +1508,7 @@ function selectHand(side){
   if(!gameState.playerTurn) return;
   if(toNum(gameState.player[side]) === 0) return;
   playSE('click', 0.5);
-  if(gameState.pendingActiveUse && ['heal','overheat','pumpUp','split'].includes(gameState.pendingActiveUse.id)){ applyPendingActiveOnPlayer(side); return; }
+  if(gameState.pendingActiveUse && ['heal','haisuinojin','pumpUp','split'].includes(gameState.pendingActiveUse.id)){ applyPendingActiveOnPlayer(side); return; }
   if(selectedHand === side){ selectedHand = null; if(hands.playerLeft) hands.playerLeft.classList.remove('selected'); if(hands.playerRight) hands.playerRight.classList.remove('selected'); messageArea.textContent = '選択を解除しました'; return; }
   selectedHand = side; if(hands.playerLeft) hands.playerLeft.classList.toggle('selected', side === 'left'); if(hands.playerRight) hands.playerRight.classList.toggle('selected', side === 'right'); if(gameState.isTutorial && gameState.tutorialBattleStep === 0){ gameState.tutorialBattleStep = 1; updateTutorialBattleGuide(); } else { messageArea.textContent = '敵の手を選んで攻撃してください'; }
 }
