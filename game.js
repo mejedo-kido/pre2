@@ -32,7 +32,7 @@ const SKILL_POOL = [
   { id:'freeze', type:'active', baseDesc:'相手の次のターンの攻撃を封じる', name:'🧊 フリーズ', rarity:'rare' },
   { id:'distribute', type:'active', baseDesc:'自分の左右の値を均等に分配する', name:'⚖️ 分配', rarity:'common' },
   { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒をlevelターン付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' },
-  { id:'overheat', type:'active', baseDesc:'手を1つ選び、その値を最大値×(2+level)にする', name:'🔥 オーバーヒート', rarity:'rare' },
+  { id:'overheat', type:'active', baseDesc:'手を1つ選び、その値を最大値×(2+level)にする。攻撃後、選んだ手に除外99ターン', name:'🔥 オーバーヒート', rarity:'rare' },
   { id:'riskyStrike', type:'passive', baseDesc:'毎ターン、攻撃バフが -4×level ～ +4×level でランダム変動（1ターン）', name:'🎲 リスキーストライク', rarity:'rare' },
   { id:'hades', type:'active', baseDesc:'相手のランダムな手に除外をlevelターン付与', name:'💀 ハーデス', rarity:'epic' },
   { id:'curse', type:'active', baseDesc:'相手の両手に呪いマークを付与（呪いマーク数だけ最大値-1）', name:'🕸 カース', rarity:'common' }
@@ -130,6 +130,8 @@ const gameState = {
   enemySkipAttackTurns: 0,
   playerExcluded: { left:0, right:0 },
   enemyExcluded: { left:0, right:0, third:0 },
+  playerOverheatExcludePending: { left:false, right:false },
+  enemyOverheatExcludePending: { left:false, right:false, third:false },
   playerCurseMarks: { left:0, right:0 },
   enemyCurseMarks: { left:0, right:0, third:0 },
   playerRiskyStrikeBuff: 0,
@@ -307,6 +309,8 @@ function startTutorialBattle(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerOverheatExcludePending = { left:false, right:false };
+  gameState.enemyOverheatExcludePending = { left:false, right:false, third:false };
   gameState.playerCurseMarks = { left:0, right:0 };
   gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
@@ -358,6 +362,8 @@ function resetAllProgress(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerOverheatExcludePending = { left:false, right:false };
+  gameState.enemyOverheatExcludePending = { left:false, right:false, third:false };
   gameState.playerCurseMarks = { left:0, right:0 };
   gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
@@ -385,6 +391,8 @@ function resetFullGameToTitle(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerOverheatExcludePending = { left:false, right:false };
+  gameState.enemyOverheatExcludePending = { left:false, right:false, third:false };
   gameState.playerCurseMarks = { left:0, right:0 };
   gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
@@ -588,6 +596,8 @@ function startBattle(){
   gameState.enemyPoison = { left:0, right:0, third:0 };
   gameState.playerExcluded = { left:0, right:0 };
   gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerOverheatExcludePending = { left:false, right:false };
+  gameState.enemyOverheatExcludePending = { left:false, right:false, third:false };
   gameState.playerCurseMarks = { left:0, right:0 };
   gameState.enemyCurseMarks = { left:0, right:0, third:0 };
   gameState.playerRiskyStrikeBuff = 0;
@@ -1295,6 +1305,8 @@ function applyPendingActiveOnPlayer(side){
     const threshold = getDestroyThreshold(false);
     const boosted = Math.min(HARD_CAP, toNum(threshold) * (2 + Number(sk.level || 1)));
     gameState.player[side] = boosted;
+    if(!gameState.playerOverheatExcludePending) gameState.playerOverheatExcludePending = { left:false, right:false };
+    gameState.playerOverheatExcludePending[side] = true;
     sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
     const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
     showPopupText(el, `${boosted}`, '#ff9e9e');
@@ -1423,6 +1435,13 @@ function playerAttack(targetSide){
 
   // handle counter and chain buffs
   handleCounter(false, attackerKey, true, targetSide);
+
+  if(gameState.playerOverheatExcludePending && gameState.playerOverheatExcludePending[attackerKey]){
+    inflictExcluded(false, attackerKey, 99);
+    gameState.playerOverheatExcludePending[attackerKey] = false;
+    showPopupText(attackerEl, '除外 99T', '#caa6ff');
+    messageArea.textContent = `${attackerKey === 'left' ? '左手' : '右手'}に除外99ターンが付与された`;
+  }
 
   if(enemyDestroyed.some(d => d.side === targetSide) && hasEquipped('chain')){
     const lvl = getEquippedLevel('chain');
@@ -1585,6 +1604,8 @@ function enemyTurn(){
         const threshold = getDestroyThreshold(false);
         const boosted = Math.min(HARD_CAP, toNum(threshold) * (2 + Number(skill.level || 1)));
         gameState.enemy[r] = boosted;
+        if(!gameState.enemyOverheatExcludePending) gameState.enemyOverheatExcludePending = { left:false, right:false, third:false };
+        gameState.enemyOverheatExcludePending[r] = true;
         const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')];
         showPopupText(el, `${boosted}`, '#ff9e9e');
         skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
@@ -1654,6 +1675,14 @@ function enemyTurn(){
   let curPlayer = toNum(gameState.player[to]);
   let newVal = curPlayer + remainingAttack; if(!Number.isFinite(newVal)) newVal = 0;
   gameState.player[to] = newVal;
+
+  if(gameState.enemyOverheatExcludePending && gameState.enemyOverheatExcludePending[from]){
+    inflictExcluded(true, from, 99);
+    gameState.enemyOverheatExcludePending[from] = false;
+    showPopupText(attackerEl, '除外 99T', '#caa6ff');
+    messageArea.textContent = `敵の${from === 'left' ? '左手' : (from === 'right' ? '右手' : '第三の手')}に除外99ターンが付与された`;
+  }
+
   const enemyPoisonHandSkill = (gameState.enemySkills || []).find(s => s.id === 'poisonHand');
   if(enemyPoisonHandSkill){
     const poisonTurns = Math.max(1, Number(enemyPoisonHandSkill.level || 1));
