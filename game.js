@@ -31,7 +31,10 @@ const SKILL_POOL = [
   { id:'split', type:'active', baseDesc:'片手のみ生存かつ値≥2の時、その手を半分にして両手にする', name:'✂ 分割', rarity:'common' },
   { id:'freeze', type:'active', baseDesc:'相手の次のターンの攻撃を封じる', name:'🧊 フリーズ', rarity:'rare' },
   { id:'distribute', type:'active', baseDesc:'自分の左右の値を均等に分配する', name:'⚖️ 分配', rarity:'common' },
-  { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒をlevelターン付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' }
+  { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒をlevelターン付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' },
+  { id:'overheat', type:'active', baseDesc:'手を1つ選び、その値を最大値×(2+level)にする', name:'🔥 オーバーヒート', rarity:'rare' },
+  { id:'riskyStrike', type:'passive', baseDesc:'毎ターン、攻撃バフが -4×level ～ +4×level でランダム変動（1ターン）', name:'🎲 リスキーストライク', rarity:'rare' },
+  { id:'hades', type:'active', baseDesc:'相手のランダムな手に除外をlevelターン付与', name:'💀 ハーデス', rarity:'epic' }
 ];
 
 /* Boss abilities */
@@ -124,6 +127,10 @@ const gameState = {
   enemyPoison: { left:0, right:0, third:0 },
   playerSkipAttackTurns: 0,
   enemySkipAttackTurns: 0,
+  playerExcluded: { left:0, right:0 },
+  enemyExcluded: { left:0, right:0, third:0 },
+  playerRiskyStrikeBuff: 0,
+  enemyRiskyStrikeBuff: 0,
   playerRevengeUsed: false,
   enemyRevengeUsed: false,
   awaitingEquip: false,
@@ -295,11 +302,16 @@ function startTutorialBattle(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerExcluded = { left:0, right:0 };
+  gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerRiskyStrikeBuff = 0;
+  gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   selectedHand = null;
   equipTemp = [];
   gameState.equippedSkills = [{ id:'double', level:1, type:'active', name:'⛏ ダブルストライク', desc:'次の攻撃が大幅に上昇', used:false, remainingTurns:0, remainingCooldown:0 }];
+  rollRiskyStrikeBuff(false);
   if(skillSelectArea) skillSelectArea.innerHTML = '';
   if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: なし（チュートリアル固定）';
   messageArea.textContent = '実践STEP1: 左手を選択してください';
@@ -339,6 +351,10 @@ function resetAllProgress(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerExcluded = { left:0, right:0 };
+  gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerRiskyStrikeBuff = 0;
+  gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.awaitingEquip = false;
@@ -360,6 +376,10 @@ function resetFullGameToTitle(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerExcluded = { left:0, right:0 };
+  gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerRiskyStrikeBuff = 0;
+  gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.enemyHasThirdHand = false;
@@ -383,6 +403,8 @@ function getSkillCooldown(skillId, level){
     split: 8,
     freeze: 8,
     distribute: 3,
+    overheat: 8,
+    hades: 8,
     // その他のアクティブがあればここに追加
   };
   const b = base[skillId] || 3;
@@ -402,6 +424,37 @@ function tickSkillCooldowns(){
   renderEquipped();
 }
 function safeDecrease(cur, amount){ cur = toNum(cur); if(cur === 0) return 0; let newVal = cur - amount; if(newVal < 1) newVal = 1; return newVal; }
+function isHandExcluded(ownerIsEnemy, side){
+  const pool = ownerIsEnemy ? gameState.enemyExcluded : gameState.playerExcluded;
+  return !!(pool && Number(pool[side] || 0) > 0);
+}
+function inflictExcluded(targetIsEnemy, side, turns = 1){
+  const pool = targetIsEnemy ? gameState.enemyExcluded : gameState.playerExcluded;
+  if(!pool) return;
+  const t = Math.max(1, Number(turns) || 1);
+  pool[side] = Math.max(Number(pool[side] || 0), t);
+}
+function tickExcludedStatus(){
+  const tickPool = (pool, keys) => {
+    keys.forEach(k => {
+      if(!pool || !Number(pool[k])) return;
+      pool[k] = Math.max(0, Number(pool[k]) - 1);
+    });
+  };
+  tickPool(gameState.playerExcluded, ['left', 'right']);
+  tickPool(gameState.enemyExcluded, gameState.enemyHasThirdHand ? ['left', 'right', 'third'] : ['left', 'right']);
+}
+function rollRiskyStrikeBuff(isEnemy){
+  const level = getSkillLevelOnUnit(isEnemy, 'riskyStrike');
+  if(level <= 0){
+    if(isEnemy) gameState.enemyRiskyStrikeBuff = 0;
+    else gameState.playerRiskyStrikeBuff = 0;
+    return;
+  }
+  const amount = rand(-4 * level, 4 * level);
+  if(isEnemy) gameState.enemyRiskyStrikeBuff = amount;
+  else gameState.playerRiskyStrikeBuff = amount;
+}
 function getSkillLevelOnUnit(isEnemy, skillId){ if(isEnemy){ if(!gameState.enemySkills) return 0; const s = gameState.enemySkills.find(x=>x.id===skillId); return s ? (s.level||1) : 0; } else { const s = (gameState.equippedSkills || []).find(x=>x.id===skillId); return s ? (s.level||1) : 0; } }
 function computeDefenseForTarget(targetIsEnemy){
   let reduction = 0;
@@ -509,6 +562,10 @@ function startBattle(){
   gameState.playerShield = 0;
   gameState.playerPoison = { left:0, right:0 };
   gameState.enemyPoison = { left:0, right:0, third:0 };
+  gameState.playerExcluded = { left:0, right:0 };
+  gameState.enemyExcluded = { left:0, right:0, third:0 };
+  gameState.playerRiskyStrikeBuff = 0;
+  gameState.enemyRiskyStrikeBuff = 0;
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.playerRevengeUsed = false;
@@ -526,6 +583,8 @@ function startBattle(){
   gameState.enemy.left = toNum(rand(1,2));
   gameState.enemy.right = toNum(rand(1,2));
   gameState.enemy.third = 0;
+  rollRiskyStrikeBuff(false);
+  rollRiskyStrikeBuff(true);
   gameState.enemyDoubleMultiplier = 1;
   gameState.enemyTurnBuffs = [];
   gameState.enemyBase = {
@@ -800,6 +859,9 @@ function renderEquipped(){
         } else if(s.id === 'split'){
           gameState.pendingActiveUse = { id: 'split', idx };
           messageArea.textContent = '分割使用：片手のみ生存の時に、その手を選んでください（分割されます）';
+        } else if(s.id === 'overheat'){
+          gameState.pendingActiveUse = { id: 'overheat', idx };
+          messageArea.textContent = 'オーバーヒート使用：自分の手を選んでください';
         } else if(s.id === 'freeze'){
           gameState.enemySkipAttackTurns = Math.max(gameState.enemySkipAttackTurns || 0, 1);
           s.remainingCooldown = getSkillCooldown(s.id, s.level);
@@ -818,6 +880,23 @@ function renderEquipped(){
           showPopupText(hands.playerRight, `${half2}`, '#ffd166');
           updateUI();
           renderEquipped();
+        } else if(s.id === 'hades'){
+          const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
+          const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0 && !isHandExcluded(true, k));
+          if(candidates.length === 0){
+            messageArea.textContent = `${s.name} の対象がいません`;
+            return;
+          }
+          const target = candidates[rand(0, candidates.length - 1)];
+          inflictExcluded(true, target, Math.max(1, Number(s.level || 1)));
+          s.remainingCooldown = getSkillCooldown(s.id, s.level);
+          const el = hands[target === 'left' ? 'enemyLeft' : (target === 'right' ? 'enemyRight' : 'enemyThird')];
+          showPopupText(el, `除外 ${s.level}T`, '#caa6ff');
+          messageArea.textContent = `${s.name} 発動：敵の${target === 'left' ? '左手' : (target === 'right' ? '右手' : '第三の手')}を ${s.level}ターン除外`;
+          flashScreen(.12);
+          updateUI();
+          renderEquipped();
+          checkWinLose();
         } else if(s.id === 'fortify'){
           const duration = 2 * s.level;
           applyTurnBuff('fortify', s.level, duration);
@@ -878,7 +957,7 @@ function updateUI(){
   const pThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
   if(gameState.isTutorial) stageInfo.textContent = 'Tutorial Battle'; else if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage}`; else stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
   let displayPThresh = pThreshold * (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier ? gameState.playerBattleModifiers.thresholdMultiplier : 1);
-  if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh}`;
+  if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh} | リスキー補正: ${gameState.playerRiskyStrikeBuff >= 0 ? '+' : ''}${gameState.playerRiskyStrikeBuff || 0}`;
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
   updateHand('playerLeft', gameState.player.left); updateHand('playerRight', gameState.player.right); updateHand('enemyLeft', gameState.enemy.left); updateHand('enemyRight', gameState.enemy.right);
   if(gameState.enemyHasThirdHand) updateHand('enemyThird', gameState.enemy.third || 0);
@@ -888,7 +967,15 @@ function updateUI(){
 
 function updateHand(key, value){
   const el = hands[key]; const bar = bars[key]; const v = toNum(value);
-  if(el) { el.textContent = v; el.classList.toggle('zero', v === 0); }
+  const isEnemy = key.startsWith('enemy');
+  const side = key === 'playerLeft' ? 'left' : (key === 'playerRight' ? 'right' : (key === 'enemyLeft' ? 'left' : (key === 'enemyRight' ? 'right' : 'third')));
+  const excluded = isHandExcluded(isEnemy, side);
+  if(el) {
+    el.textContent = excluded && v > 0 ? `${v} ⛔` : v;
+    el.classList.toggle('zero', v === 0);
+    el.classList.toggle('selected', !excluded && ((key === 'playerLeft' && selectedHand === 'left') || (key === 'playerRight' && selectedHand === 'right')));
+    el.style.opacity = excluded ? '0.55' : '';
+  }
   let displayThreshold;
   if(key.startsWith('player')) displayThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
   else {
@@ -944,13 +1031,14 @@ function applyPoisonEndOfTurn(){
 
 function computePlayerAttackBonus(handKey){
   let bonus = 0; (gameState.equippedSkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.player[handKey]) === 4) bonus += s.level * 2; });
+  bonus += Number(gameState.playerRiskyStrikeBuff || 0);
   gameState.turnBuffs.forEach(tb => { if(tb.payload){ if(tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload.type === 'teamPower') bonus += tb.payload.value; } });
   const baseAtk = (gameState.baseStats && gameState.baseStats.baseAttack) ? Number(gameState.baseStats.baseAttack) : 0;
   const atkMul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.attackMultiplier) ? gameState.playerBattleModifiers.attackMultiplier : 1;
   bonus += baseAtk * atkMul;
   return bonus;
 }
-function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === 4) bonus += s.level * 2; }); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
+function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === 4) bonus += s.level * 2; }); bonus += Number(gameState.enemyRiskyStrikeBuff || 0); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'chainBoost') bonus += tb.payload.value; if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
 /* ---------- destroy threshold ---------- */
 function getDestroyThreshold(attackerIsPlayer = true){
   const targetIsEnemy = attackerIsPlayer === true;
@@ -1149,6 +1237,25 @@ function applyPendingActiveOnPlayer(side){
     showPopupText(elSide, `${half1}`, '#ffd166'); showPopupText(elOther, `${half2}`, '#ffd166');
     gameState.pendingActiveUse = null;
     updateUI(); renderEquipped(); return; }
+  if(pending.id === 'overheat'){
+    const cur = toNum(gameState.player[side]);
+    if(cur <= 0){
+      messageArea.textContent = '生存している手を選んでください';
+      gameState.pendingActiveUse = null;
+      return;
+    }
+    const threshold = getDestroyThreshold(false);
+    const boosted = Math.min(HARD_CAP, toNum(threshold) * (2 + Number(sk.level || 1)));
+    gameState.player[side] = boosted;
+    sk.remainingCooldown = getSkillCooldown(sk.id, sk.level);
+    const el = hands[side === 'left' ? 'playerLeft' : 'playerRight'];
+    showPopupText(el, `${boosted}`, '#ff9e9e');
+    messageArea.textContent = `${sk.name} を ${side} に使用：値を ${boosted} に変更`;
+    gameState.pendingActiveUse = null;
+    updateUI();
+    renderEquipped();
+    return;
+  }
   gameState.pendingActiveUse = null; messageArea.textContent = 'その操作は無効です';
 }
 
@@ -1158,6 +1265,11 @@ function applyPendingActiveOnEnemy(side){
   const pending = gameState.pendingActiveUse; const sk = gameState.equippedSkills[pending.idx];
   if(!sk || sk.used){ gameState.pendingActiveUse = null; messageArea.textContent = 'そのスキルは使用できません'; return; }
    if(pending.id === 'disrupt'){
+    if(isHandExcluded(true, side)){
+      messageArea.textContent = '除外状態の手は対象にできません';
+      gameState.pendingActiveUse = null;
+      return;
+    }
     const amount = 1 + sk.level;
     const key = side;
     const el = hands[key === 'left' ? 'enemyLeft' : (key === 'right' ? 'enemyRight' : 'enemyThird')];
@@ -1211,6 +1323,8 @@ function playerAttack(targetSide){
   if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'heal'){ messageArea.textContent = 'ヒール使用中：自分の手を選んでください'; return; }
 
   const attackerKey = selectedHand;
+  if(isHandExcluded(false, attackerKey)){ messageArea.textContent = '選択中の手は除外状態です'; clearHandSelection(); return; }
+  if(isHandExcluded(true, targetSide)){ messageArea.textContent = 'その敵手は除外状態のため攻撃できません'; return; }
   const attackerEl = hands[attackerKey === 'left' ? 'playerLeft' : 'playerRight'];
   const targetEl = hands[targetSide === 'left' ? 'enemyLeft' : (targetSide === 'right' ? 'enemyRight' : 'enemyThird')];
 
@@ -1298,6 +1412,7 @@ function playerAttack(targetSide){
 /* ---------- enemy turn (skills + attack), with detection/postprocessing ---------- */
 function enemyTurn(){
   if(gameState.inBossReward) return;
+  rollRiskyStrikeBuff(true);
   if(gameState.enemySkipAttackTurns && gameState.enemySkipAttackTurns > 0){
     gameState.enemySkipAttackTurns = Math.max(0, gameState.enemySkipAttackTurns - 1);
     messageArea.textContent = 'フリーズ効果：敵の攻撃ターンをスキップしました';
@@ -1305,7 +1420,9 @@ function enemyTurn(){
     tickEnemyTurnBuffs();
     tickSkillCooldowns();
     applyPoisonEndOfTurn();
+    tickExcludedStatus();
     gameState.playerTurn = true;
+    rollRiskyStrikeBuff(false);
     updateUI();
     flashScreen(.1);
     checkWinLose();
@@ -1339,9 +1456,9 @@ function enemyTurn(){
   if(gameState.isBoss && gameState.bossAbility && typeof gameState.bossAbility.onEnemyTurnStart === 'function'){
     try { gameState.bossAbility.onEnemyTurnStart(); } catch(e){} 
   }
-  const alivePlayer = ['left','right'].filter(s => toNum(gameState.player[s]) > 0);
+  const alivePlayer = ['left','right'].filter(s => toNum(gameState.player[s]) > 0 && !isHandExcluded(false, s));
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
-  const aliveEnemy = enemyKeys.filter(s => toNum(gameState.enemy[s]) > 0);
+  const aliveEnemy = enemyKeys.filter(s => toNum(gameState.enemy[s]) > 0 && !isHandExcluded(true, s));
   if(alivePlayer.length === 0 || aliveEnemy.length === 0) return;
 
  (gameState.enemySkills || []).forEach(skill => {
@@ -1354,10 +1471,10 @@ function enemyTurn(){
     }
     if(skill.id === 'fortify' && Math.random() < 0.25){ const duration = 2 * skill.level; applyEnemyTurnBuff('fortify', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を構えた`; }
     if(skill.id === 'chain' && Math.random() < 0.25){ applyEnemyTurnBuff('chain', skill.level, 1); const tb = gameState.enemyTurnBuffs[gameState.enemyTurnBuffs.length - 1]; if(tb) tb.payload = { type:'chainBoost', value: skill.level }; skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を準備`; }
-    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
+    if(skill.id === 'disrupt' && Math.random() < 0.35){ const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0 && !isHandExcluded(false, k)); if(candidates.length > 0){ const target = candidates[rand(0, candidates.length-1)]; const amount = 1 + skill.level; const cur = toNum(gameState.player[target]); const newVal = safeDecrease(cur, amount); gameState.player[target] = newVal; const el = hands[target === 'left' ? 'playerLeft' : 'playerRight']; showPopupText(el, `-${amount}`, '#ffb86b'); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用した`; } }
     if(skill.id === 'teamPower' && Math.random() < 0.2){ const duration = 2 * skill.level; applyEnemyTurnBuff('teamPower', skill.level, duration); skill.remainingCooldown = getSkillCooldown(skill.id, skill.level); messageArea.textContent = `敵が ${skill.name} を使用（味方全体強化）`; }
     if(skill.id === 'haisuinojin' && Math.random() < 0.3){
-      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0 && !isHandExcluded(true, k));
       if(candidates.length > 0){
         const r = candidates[rand(0, candidates.length - 1)];
         const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')];
@@ -1370,7 +1487,7 @@ function enemyTurn(){
       }
     }
     if(skill.id === 'pumpUp' && Math.random() < 0.35){
-      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0 && !isHandExcluded(true, k));
       if(candidates.length > 0){
         const r = candidates[rand(0, candidates.length - 1)];
         const amount = skill.level || 1;
@@ -1382,7 +1499,7 @@ function enemyTurn(){
       }
     }
     if(skill.id === 'split' && Math.random() < 0.35){
-      const alive = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+      const alive = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0 && !isHandExcluded(true, k));
       if(alive.length === 1){
         const side = alive[0];
         const val = toNum(gameState.enemy[side]);
@@ -1411,6 +1528,30 @@ function enemyTurn(){
         gameState.enemy.right = half2;
         skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
         messageArea.textContent = `敵が ${skill.name} を使用した（${half1}/${half2}）`;
+      }
+    }
+    if(skill.id === 'overheat' && Math.random() < 0.3){
+      const candidates = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0 && !isHandExcluded(true, k));
+      if(candidates.length > 0){
+        const r = candidates[rand(0, candidates.length - 1)];
+        const threshold = getDestroyThreshold(false);
+        const boosted = Math.min(HARD_CAP, toNum(threshold) * (2 + Number(skill.level || 1)));
+        gameState.enemy[r] = boosted;
+        const el = hands[r === 'left' ? 'enemyLeft' : (r === 'right' ? 'enemyRight' : 'enemyThird')];
+        showPopupText(el, `${boosted}`, '#ff9e9e');
+        skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
+        messageArea.textContent = `敵が ${skill.name} を使用した`;
+      }
+    }
+    if(skill.id === 'hades' && Math.random() < 0.28){
+      const candidates = ['left','right'].filter(k => toNum(gameState.player[k]) > 0 && !isHandExcluded(false, k));
+      if(candidates.length > 0){
+        const r = candidates[rand(0, candidates.length - 1)];
+        inflictExcluded(false, r, Math.max(1, Number(skill.level || 1)));
+        const el = hands[r === 'left' ? 'playerLeft' : 'playerRight'];
+        showPopupText(el, `除外 ${skill.level}T`, '#caa6ff');
+        skill.remainingCooldown = getSkillCooldown(skill.id, skill.level);
+        messageArea.textContent = `敵が ${skill.name} を使用した`;
       }
     }
   });
@@ -1481,7 +1622,9 @@ function enemyTurn(){
   // --- 新: スキルのクールダウンを1減らす（戦闘ラウンド経過） ---
   tickSkillCooldowns();
 
+  tickExcludedStatus();
   gameState.playerTurn = true;
+  rollRiskyStrikeBuff(false);
   if(gameState.playerSkipAttackTurns && gameState.playerSkipAttackTurns > 0){
     gameState.playerSkipAttackTurns = Math.max(0, gameState.playerSkipAttackTurns - 1);
     gameState.playerTurn = false;
@@ -1507,8 +1650,9 @@ function selectHand(side){
   if(skillSelectArea && skillSelectArea.children.length > 0){ messageArea.textContent = 'まず装備を確定してください'; return; }
   if(!gameState.playerTurn) return;
   if(toNum(gameState.player[side]) === 0) return;
+  if(isHandExcluded(false, side)){ messageArea.textContent = 'その手は除外状態のため選択できません'; return; }
   playSE('click', 0.5);
-  if(gameState.pendingActiveUse && ['heal','haisuinojin','pumpUp','split'].includes(gameState.pendingActiveUse.id)){ applyPendingActiveOnPlayer(side); return; }
+  if(gameState.pendingActiveUse && ['heal','haisuinojin','pumpUp','split','overheat'].includes(gameState.pendingActiveUse.id)){ applyPendingActiveOnPlayer(side); return; }
   if(selectedHand === side){ selectedHand = null; if(hands.playerLeft) hands.playerLeft.classList.remove('selected'); if(hands.playerRight) hands.playerRight.classList.remove('selected'); messageArea.textContent = '選択を解除しました'; return; }
   selectedHand = side; if(hands.playerLeft) hands.playerLeft.classList.toggle('selected', side === 'left'); if(hands.playerRight) hands.playerRight.classList.toggle('selected', side === 'right'); if(gameState.isTutorial && gameState.tutorialBattleStep === 0){ gameState.tutorialBattleStep = 1; updateTutorialBattleGuide(); } else { messageArea.textContent = '敵の手を選んで攻撃してください'; }
 }
@@ -1526,6 +1670,7 @@ function clickEnemyHand(side){
   }
   if(skillSelectArea && skillSelectArea.children.length > 0){ messageArea.textContent = 'まず装備を確定してください'; return; }
   if(!gameState.playerTurn) return;
+  if(isHandExcluded(true, side)){ messageArea.textContent = 'その敵の手は除外状態です'; return; }
   if(gameState.pendingActiveUse && gameState.pendingActiveUse.id === 'disrupt'){ applyPendingActiveOnEnemy(side); return; }
   if(!selectedHand){ messageArea.textContent = '攻撃する手を選んでください'; return; }
   if(toNum(gameState.enemy[side]) === 0){ messageArea.textContent = 'その敵の手は既に0です'; return; }
@@ -1549,6 +1694,7 @@ function refreshOverlayContent(owner, hand){
   _overlayEl.dataset.owner = owner; _overlayEl.dataset.hand = hand;
   const isEnemy = (owner === 'enemy');
   const value = isEnemy ? toNum(gameState.enemy[hand]) : toNum(gameState.player[hand]);
+  const excludedTurns = isEnemy ? Number(gameState.enemyExcluded[hand] || 0) : Number(gameState.playerExcluded[hand] || 0);
   const attackerIsPlayer = isEnemy ? true : false;
   const destroyThreshold = getDestroyThreshold(attackerIsPlayer);
   const remaining = Number.isFinite(destroyThreshold) ? (destroyThreshold - value) : '—';
@@ -1567,6 +1713,7 @@ function refreshOverlayContent(owner, hand){
   const sampleText = `攻撃力目安: ${sampleAtt} ${attackerDoubleText}`;
   let html = `<div style="font-weight:800; margin-bottom:6px">${isEnemy ? '敵' : 'あなた'} — ${hand === 'left' ? '左手' : (hand === 'right' ? '右手' : '第3の手')}</div>`;
   html += `<div>現在値: <b>${value}</b></div>`; html += `<div>最大値: <b>${destroyThreshold}</b> ${pierceInfo}</div>`; html += `<div style="margin-top:6px; font-weight:700">${remText}</div>`; html += `<div style="margin-top:6px; color:#ccc">${sampleText}</div>`;
+  if(excludedTurns > 0) html += `<div style="margin-top:6px; color:#caa6ff">状態異常: 除外（残り ${excludedTurns}ターン）</div>`;
   if(buffs.length > 0) html += `<div style="margin-top:8px; color:#ffd">${buffs.join(' / ')}</div>`;
   const skills = isEnemy ? (gameState.enemySkills || []) : (gameState.equippedSkills || []).filter(s=>s.type==='passive' || s.type==='event' || s.type==='combo');
   if(skills && skills.length > 0){ const skillNames = skills.map(s => `${s.name} Lv${s.level||1}`); html += `<div style="margin-top:8px; font-size:12px; opacity:0.9">関連スキル: ${skillNames.join(' / ')}</div>`; }
@@ -1577,9 +1724,13 @@ function removeOverlay(){ if(_overlayEl){ _overlayEl.remove(); _overlayEl = null
 
 /* ---------- check win/lose & reward ---------- */
 function checkWinLose(){
-  const playerDead = toNum(gameState.player.left) === 0 && toNum(gameState.player.right) === 0;
+  const playerAliveSides = ['left','right'].filter(k => toNum(gameState.player[k]) > 0);
+  const playerNoSelectable = playerAliveSides.length > 0 && playerAliveSides.every(k => isHandExcluded(false, k));
+  const playerDead = (toNum(gameState.player.left) === 0 && toNum(gameState.player.right) === 0) || playerNoSelectable;
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
-  const enemyDead = enemyKeys.every(k => toNum(gameState.enemy[k]) === 0);
+  const enemyAliveSides = enemyKeys.filter(k => toNum(gameState.enemy[k]) > 0);
+  const enemyNoSelectable = enemyAliveSides.length > 0 && enemyAliveSides.every(k => isHandExcluded(true, k));
+  const enemyDead = enemyKeys.every(k => toNum(gameState.enemy[k]) === 0) || enemyNoSelectable;
   if(enemyDead){
     playSE('victory', 0.8);
     if(gameState.isTutorial){
@@ -1602,7 +1753,7 @@ function checkWinLose(){
   }
   if(playerDead){
     playSE('lose', 0.8);
-    messageArea.textContent = 'Game Over';
+    messageArea.textContent = playerNoSelectable ? 'Game Over（除外状態で行動不能）' : 'Game Over';
     updateBestStage();
     if(gameState.stage > gameState.bestStage){ gameState.bestStage = gameState.stage; saveBest(); }
     setTimeout(()=> { if(bestStageValue) bestStageValue.textContent = gameState.bestStage; showTitleScreen(); }, 1000);
