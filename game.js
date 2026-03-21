@@ -1152,7 +1152,7 @@ function inflictPoison(targetIsEnemy, side, turns = 1, opts = {}){
   if(powerPool && Number(pool[side] || 0) > 0 && (!Number(powerPool[side]) || Number(powerPool[side]) < 1)) powerPool[side] = 1;
   if(!targetIsEnemy && !opts.mirrored) mirrorDebuffIfNeeded('poison', side, t);
 }
-function applyPoisonEndOfTurn(){
+function applyPoisonEndOfOpponentTurn(turnOwnerIsPlayer){
   const apply = (ownerIsEnemy, keys) => {
     const state = ownerIsEnemy ? gameState.enemy : gameState.player;
     const poison = ownerIsEnemy ? gameState.enemyPoison : gameState.playerPoison;
@@ -1176,9 +1176,12 @@ function applyPoisonEndOfTurn(){
       else if(poison[k] <= 0 && poisonPower) poisonPower[k] = 1;
     });
   };
+  if(turnOwnerIsPlayer){
+    apply(false, ['left','right']);
+    return;
+  }
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
   apply(true, enemyKeys);
-  apply(false, ['left','right']);
 }
 
 function computePlayerAttackBonus(handKey){
@@ -1576,7 +1579,7 @@ function playerAttack(targetSide){
   // clear selection and advance turn
   clearHandSelection();
   gameState.playerTurn = false;
-  applyPoisonEndOfTurn();
+  applyPoisonEndOfOpponentTurn(true);
   if(gameState.isTutorial && gameState.tutorialBattleStep === 1){
     // 初回攻撃後は固定の敵行動へ
   }
@@ -1608,7 +1611,7 @@ function enemyTurn(){
     tickTurnBuffs();
     tickEnemyTurnBuffs();
     tickSkillCooldowns();
-    applyPoisonEndOfTurn();
+    applyPoisonEndOfOpponentTurn(false);
     tickExcludedStatus();
     gameState.playerTurn = true;
     rollRiskyStrikeBuff(false);
@@ -1837,7 +1840,7 @@ function enemyTurn(){
   }
 
   if(hasEquipped('regen')) applyRegenToUnit(false);
-  applyPoisonEndOfTurn();
+  applyPoisonEndOfOpponentTurn(false);
    // at the end of enemyTurn before setting playerTurn true:
   tickTurnBuffs();
   tickEnemyTurnBuffs();
