@@ -43,6 +43,7 @@ const RELIC_POOL = [
   { id:'heavenMirror', name:'🪞 天の鏡', desc:'自分が受けたデバフを、相手の同じ手にも付与する' },
   { id:'cursedIdol', name:'🧿 呪物', desc:'自身が付与する呪いマークの量が2倍になる' },
   { id:'energyDrink', name:'🥤 エナジードリンク', desc:'アクティブスキルのCDが2減少する（最小1）' },
+  { id:'technician', name:'🧰 テクニシャン', desc:'選べるスキルの数の最大値が1増える' },
   { id:'venomFlask', name:'🧪 猛毒瓶', desc:'毒ダメージが経過ターンごとに+1ずつ増える' },
   { id:'bloodyAxe', name:'🪓 血濡れた斧', desc:'ディスラプトで指を0まで減らせる' },
   { id:'reinforcedArmor', name:'🛡 強化装甲', desc:'基礎攻撃・基礎防御・指の最大値がそれぞれ+2' },
@@ -826,8 +827,9 @@ function applyPowerScalingToEnemy(){
 
 /* ---------- equip / reward UI ---------- */
 function showEquipSelection(){
+  const equipSlotLimit = getEquipSlotLimit();
   skillSelectArea.innerHTML = '';
-  messageArea.textContent = `装備スキルを最大${EQUIP_SLOTS}つ選んで「確定」してください`;
+  messageArea.textContent = `装備スキルを最大${equipSlotLimit}つ選んで「確定」してください`;
   const wrap = document.createElement('div'); wrap.className = 'skill-choices';
   gameState.unlockedSkills.forEach(us => {
     const def = SKILL_POOL.find(s=>s.id===us.id);
@@ -842,7 +844,7 @@ function showEquipSelection(){
       playSE('click', 0.5);
       const idx = equipTemp.indexOf(us.id);
       if(idx === -1){
-        if(equipTemp.length >= EQUIP_SLOTS){ messageArea.textContent = `最大${EQUIP_SLOTS}つまで装備できます`; setTimeout(()=> messageArea.textContent = `装備スキルを最大${EQUIP_SLOTS}つ選んで「確定」してください`, 900); return; }
+        if(equipTemp.length >= equipSlotLimit){ messageArea.textContent = `最大${equipSlotLimit}つまで装備できます`; setTimeout(()=> messageArea.textContent = `装備スキルを最大${equipSlotLimit}つ選んで「確定」してください`, 900); return; }
         equipTemp.push(us.id); btn.classList.add('chosen');
       } else { equipTemp.splice(idx,1); btn.classList.remove('chosen'); }
     };
@@ -1189,6 +1191,18 @@ function computePlayerAttackBonus(handKey){
   return bonus;
 }
 function computeEnemyAttackBonus(attackerHandKey){ let bonus = 0; (gameState.enemySkills || []).forEach(s => { if(s.type !== 'passive') return; if(s.id === 'power') bonus += s.level; if(s.id === 'berserk' && toNum(gameState.enemy[attackerHandKey]) === (getMaxFingerForEnemy() - 1)) bonus += s.level * 2; }); bonus += Number(gameState.enemyRiskyStrikeBuff || 0); gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'teamPower') bonus += tb.payload.value; }); return bonus; }
+function getEquipSlotLimit(){
+  const hasTechnician = (gameState.relics || []).some(r => r.id === 'technician');
+  return EQUIP_SLOTS + (hasTechnician ? 1 : 0);
+}
+function getPierceReductionAmount(maxFingerValue, pierceLevel){
+  const lv = Math.max(0, Number(pierceLevel || 0));
+  if(lv <= 0) return 0;
+  const maxFinger = Number(maxFingerValue);
+  if(!Number.isFinite(maxFinger)) return 0;
+  const reduced = Math.floor(maxFinger * 0.2 * lv);
+  return Math.max(1, reduced);
+}
 /* ---------- destroy threshold ---------- */
 function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
   const targetIsEnemy = attackerIsPlayer === true;
@@ -1212,11 +1226,11 @@ function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
   }
   let threshold = Number(thresholdRaw);
   if(!Number.isFinite(threshold)) threshold = 5;
-  if(attackerIsPlayer){
-    (gameState.equippedSkills || []).forEach(s => { if(s.type === 'passive' && s.id === 'pierce') threshold = Math.max(2, threshold - Number(s.level || 0)); });
-  } else {
-    (gameState.enemySkills || []).forEach(s => { if(s.type === 'passive' && s.id === 'pierce') threshold = Math.max(2, threshold - Number(s.level || 0)); });
-  }
+  const pierceTotalLevel = attackerIsPlayer
+    ? (gameState.equippedSkills || []).filter(s => s.type === 'passive' && s.id === 'pierce').reduce((sum, s) => sum + Number(s.level || 0), 0)
+    : (gameState.enemySkills || []).filter(s => s.type === 'passive' && s.id === 'pierce').reduce((sum, s) => sum + Number(s.level || 0), 0);
+  const pierceReduction = getPierceReductionAmount(thresholdRaw, pierceTotalLevel);
+  threshold = Math.max(2, threshold - pierceReduction);
   if(targetSide){
     const targetIsEnemy = attackerIsPlayer === true;
     const curseReduction = getCurseReductionForSide(targetIsEnemy, targetSide);
