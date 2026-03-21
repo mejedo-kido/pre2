@@ -1230,14 +1230,14 @@ function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
     ? (gameState.equippedSkills || []).filter(s => s.type === 'passive' && s.id === 'pierce').reduce((sum, s) => sum + Number(s.level || 0), 0)
     : (gameState.enemySkills || []).filter(s => s.type === 'passive' && s.id === 'pierce').reduce((sum, s) => sum + Number(s.level || 0), 0);
   const pierceReduction = getPierceReductionAmount(thresholdRaw, pierceTotalLevel);
-  threshold = Math.max(2, threshold - pierceReduction);
+  threshold = Math.max(1, threshold - pierceReduction);
   if(targetSide){
     const targetIsEnemy = attackerIsPlayer === true;
     const curseReduction = getCurseReductionForSide(targetIsEnemy, targetSide);
-    threshold = Math.max(2, threshold - curseReduction);
+    threshold = Math.max(1, threshold - curseReduction);
   }
   if(!Number.isFinite(threshold)) threshold = 5;
-  threshold = Math.max(2, threshold);
+  threshold = Math.max(1, threshold);
   return threshold;
 }
 
