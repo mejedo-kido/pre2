@@ -116,11 +116,6 @@ h1{ margin:6px 0 12px; font-size:22px; }
 .skill-btn{ padding:8px 12px; border-radius:10px; background:#2e2e2e; color:#fff; border:1px solid rgba(255,255,255,0.04); cursor:pointer; transition: transform .08s ease, background .12s }
 .skill-btn:hover{ transform:translateY(-3px) }
 .skill-btn.chosen{ background: linear-gradient(90deg,var(--accent),#ffb86b); color:#111; border-color: rgba(0,0,0,0.1) }
-.map-choices .skill-btn{
-  min-width: 150px;
-  min-height: 74px;
-  background: linear-gradient(180deg, #2b2b2b, #1f1f1f);
-}
 
 /* owned / unlocked lists */
 #skillInventory{ margin-top:12px; text-align:left }
