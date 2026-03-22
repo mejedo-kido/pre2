@@ -1,7 +1,6 @@
 /* game.js — 置き換え用 完全版（破壊処理後方化 + 転生確実化 修正版） */
 
 /* ---------- constants / pools ---------- */
-const STORAGE_KEY = 'fd_unlocked_skills_v2';
 const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
@@ -172,7 +171,6 @@ const ruleScreen = document.getElementById('ruleScreen');
 const tutorialScreen = document.getElementById('tutorialScreen');
 const startButton = document.getElementById('startButton');
 const tutorialButton = document.getElementById('tutorialButton');
-const resetButton = document.getElementById('resetButton');
 const ruleNextButton = document.getElementById('ruleNextButton');
 const ruleBackButton = document.getElementById('ruleBackButton');
 const bestStageValue = document.getElementById('bestStageValue');
@@ -266,8 +264,8 @@ function playSE(name, volume = 0.6){
 /* ---------- utils & persistence ---------- */
 const rand = (min,max) => Math.floor(Math.random()*(max-min+1))+min;
 function toNum(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
-function saveUnlocked(){ try { localStorage.setItem(STORAGE_KEY, JSON.stringify(gameState.unlockedSkills)); } catch(e){} }
-function loadUnlocked(){ try { const raw = localStorage.getItem(STORAGE_KEY); if(!raw) return null; const parsed = JSON.parse(raw); if(Array.isArray(parsed)){ if(parsed.length === 0) return []; if(typeof parsed[0] === 'string') return parsed.map(id=>({ id, level:1 })); if(typeof parsed[0] === 'object' && parsed[0].id) return parsed.map(o=>({ id:o.id, level:o.level||1 })); } } catch(e){} return null; }
+function saveUnlocked(){ /* パーマデス仕様: スキル持ち越しなし */ }
+function loadUnlocked(){ return null; }
 function loadBest(){ try { const b = Number(localStorage.getItem(BEST_KEY)); return Number.isFinite(b) && b > 0 ? b : 1; } catch(e){ return 1; } }
 function saveBest(){ try { localStorage.setItem(BEST_KEY, String(gameState.bestStage)); } catch(e){} }
 function hasRelic(id){ return (gameState.relics || []).some(r => r.id === id); }
@@ -364,41 +362,7 @@ function updateTutorialBattleGuide(){
 }
 
 /* ---------- seeding & reset ---------- */
-function seedInitialUnlocks(){ gameState.unlockedSkills = [{ id:'power', level:1 }, { id:'guard', level:1 }]; saveUnlocked(); }
-function resetAllProgress(){
-  try { localStorage.removeItem(STORAGE_KEY); } catch(e){}
-  seedInitialUnlocks();
-  gameState.stage = 1;
-  gameState.isEndless = false;
-  gameState.isGameClear = false;
-  gameState.powerLevel = 0;
-  gameState.isTutorial = false;
-  gameState.tutorialBattleStep = 0;
-  gameState.relics = [];
-  gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
-  gameState.bossEnemyThresholdMultiplier = 1;
-  gameState.playerBattleModifiers = { thresholdMultiplier:1, attackMultiplier:1, defenseMultiplier:1 };
-  gameState.playerShield = 0;
-  gameState.playerPoison = { left:0, right:0 };
-  gameState.enemyPoison = { left:0, right:0, third:0 };
-  gameState.playerPoisonPower = { left:1, right:1 };
-  gameState.enemyPoisonPower = { left:1, right:1, third:1 };
-  gameState.playerExcluded = { left:0, right:0 };
-  gameState.enemyExcluded = { left:0, right:0, third:0 };
-  gameState.playerOverheatExcludePending = { left:false, right:false };
-  gameState.enemyOverheatExcludePending = { left:false, right:false, third:false };
-  gameState.playerCurseMarks = { left:0, right:0 };
-  gameState.enemyCurseMarks = { left:0, right:0, third:0 };
-  gameState.playerRiskyStrikeBuff = 0;
-  gameState.enemyRiskyStrikeBuff = 0;
-  gameState.playerSkipAttackTurns = 0;
-  gameState.enemySkipAttackTurns = 0;
-  gameState.awaitingEquip = false;
-  gameState.enemyHasThirdHand = false;
-  gameState.equippedSkills = [];
-  gameState.unlockedSkills = gameState.unlockedSkills || [];
-  gameState.bestStage = loadBest();
-}
+function seedInitialUnlocks(){ gameState.unlockedSkills = [{ id:'power', level:1 }, { id:'guard', level:1 }]; }
 function resetFullGameToTitle(){
   gameState.stage = 1;
   gameState.isEndless = false;
@@ -572,9 +536,7 @@ function handleCounter(attackerIsEnemy, attackerSide, targetIsEnemy, targetSide)
 
 /* ---------- init & title handling ---------- */
 function initGame(){
-  const loaded = loadUnlocked();
-  if(loaded && loaded.length>0) gameState.unlockedSkills = loaded;
-  else seedInitialUnlocks();
+  seedInitialUnlocks();
   gameState.bestStage = loadBest();
   if(bestStageValue) bestStageValue.textContent = gameState.bestStage;
   showTitleScreen();
@@ -583,7 +545,6 @@ function initGame(){
   messageArea && (messageArea.textContent = '');
   // attach handlers (overwrite)
   if(startButton) startButton.onclick = () => { playSE('click', 0.5); showTitleScreen(); if(ruleScreen) ruleScreen.style.display = 'flex'; };
-  if(resetButton) resetButton.onclick = () => { playSE('click', 0.5); if(confirm('スキルのアンロックを初期状態にリセットします。\nよろしいですか？')) { resetAllProgress(); updateUI(); } };
   if(ruleNextButton) ruleNextButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showGameScreen(); startGame(); };
   if(ruleBackButton) ruleBackButton.onclick = () => { playSE('click', 0.5); if(ruleScreen) ruleScreen.style.display = 'none'; showTitleScreen(); };
   if(tutorialButton) tutorialButton.onclick = () => { playSE('click', 0.5); openTutorialScreen(); };
@@ -633,7 +594,7 @@ function startGame(){
   if(skillSelectArea) skillSelectArea.innerHTML = '';
   if(messageArea) messageArea.textContent = '';
   if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: —';
-  if(!gameState.unlockedSkills || gameState.unlockedSkills.length === 0) seedInitialUnlocks();
+  seedInitialUnlocks();
   startBattle();
 }
 
