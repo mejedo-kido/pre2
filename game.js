@@ -8,6 +8,8 @@ const MAX_SKILL_LEVEL = 3;
 const SKILL_LEVEL_CAP = { pierce: 2, possession: 1, split: 1 };
 const HARD_CAP = 99;
 const RELIC_DROP_INTERVAL = 9;
+const MAP_LANES = 3;
+const MAP_DEPTH_DEFAULT = 10;
 
 /* Skill pool (including new ones) */
 const SKILL_POOL = [
@@ -160,6 +162,9 @@ const gameState = {
   relics: [],
   playerPoisonPower: { left:1, right:1 },
   enemyPoisonPower: { left:1, right:1, third:1 }
+  ,
+  map: { floor:1, depth:-1, maxDepth: MAP_DEPTH_DEFAULT, lane:1, nodes:[] },
+  currentNode: null
 };
 
 let selectedHand = null;
@@ -395,6 +400,8 @@ function resetAllProgress(){
   gameState.enemySkipAttackTurns = 0;
   gameState.awaitingEquip = false;
   gameState.enemyHasThirdHand = false;
+  gameState.currentNode = null;
+  gameState.map = { floor:1, depth:-1, maxDepth: MAP_DEPTH_DEFAULT, lane:1, nodes:[] };
   gameState.equippedSkills = [];
   gameState.unlockedSkills = gameState.unlockedSkills || [];
   gameState.bestStage = loadBest();
@@ -425,6 +432,8 @@ function resetFullGameToTitle(){
   gameState.playerSkipAttackTurns = 0;
   gameState.enemySkipAttackTurns = 0;
   gameState.enemyHasThirdHand = false;
+  gameState.currentNode = null;
+  gameState.map = { floor:1, depth:-1, maxDepth: MAP_DEPTH_DEFAULT, lane:1, nodes:[] };
   gameState.relics = [];
   gameState.enemy = { left:1, right:1, third:0 };
   equipTemp = [];
@@ -626,6 +635,8 @@ function startGame(){
   gameState.powerLevel = 0;
   gameState.isTutorial = false;
   gameState.tutorialBattleStep = 0;
+  gameState.map = { floor:1, depth:-1, maxDepth: MAP_DEPTH_DEFAULT, lane:1, nodes:[] };
+  gameState.currentNode = null;
   selectedHand = null;
   equipTemp = [];
   if(titleScreen) titleScreen.style.display = 'none';
@@ -634,10 +645,116 @@ function startGame(){
   if(messageArea) messageArea.textContent = '';
   if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: —';
   if(!gameState.unlockedSkills || gameState.unlockedSkills.length === 0) seedInitialUnlocks();
-  startBattle();
+  generateMapFloor();
+  showMapSelection();
 }
 
-function startBattle(){
+function generateMapFloor(){
+  const nodes = [];
+  for(let d=0; d<gameState.map.maxDepth; d++){
+    const row = [];
+    for(let lane=0; lane<MAP_LANES; lane++){
+      let type = 'battle';
+      if(d === gameState.map.maxDepth - 1) type = 'boss';
+      else {
+        const r = Math.random();
+        if(r < 0.22) type = 'event';
+        else if(r < 0.38) type = 'elite';
+        else if(r < 0.52) type = 'treasure';
+      }
+      row.push({ type });
+    }
+    nodes.push(row);
+  }
+  gameState.map.nodes = nodes;
+}
+
+function getNodeLabel(type){
+  if(type === 'event') return '❓ イベント';
+  if(type === 'elite') return '⚔ 強敵';
+  if(type === 'treasure') return '💰 宝物';
+  if(type === 'boss') return '👑 ボス';
+  return '🗡 戦闘';
+}
+
+function getReachableLanes(){
+  if(gameState.map.depth < 0) return [0,1,2];
+  const lane = Number(gameState.map.lane || 1);
+  return [lane - 1, lane, lane + 1].filter(x => x >= 0 && x < MAP_LANES);
+}
+
+function showMapSelection(){
+  if(gameState.isTutorial) return;
+  const nextDepth = gameState.map.depth + 1;
+  if(nextDepth >= gameState.map.maxDepth){
+    gameState.map.floor += 1;
+    gameState.map.depth = -1;
+    gameState.map.lane = 1;
+    generateMapFloor();
+  }
+  const targetDepth = gameState.map.depth + 1;
+  const lanes = getReachableLanes();
+  skillSelectArea.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'skill-choices map-choices';
+  messageArea.textContent = `🗺 階層マップ: Floor ${gameState.map.floor} / ${targetDepth + 1}層目。進行先を選んでください`;
+  lanes.forEach(lane => {
+    const node = gameState.map.nodes[targetDepth][lane];
+    const btn = document.createElement('button');
+    btn.className = 'skill-btn node-btn';
+    btn.innerHTML = `<div style="font-weight:700">列 ${lane + 1}</div><small>${getNodeLabel(node.type)}</small>`;
+    btn.onclick = () => {
+      playSE('click', 0.6);
+      gameState.map.depth = targetDepth;
+      gameState.map.lane = lane;
+      gameState.currentNode = node;
+      skillSelectArea.innerHTML = '';
+      enterNode(node);
+    };
+    wrap.appendChild(btn);
+  });
+  skillSelectArea.appendChild(wrap);
+  updateUI();
+}
+
+function enterNode(node){
+  if(!node) return;
+  if(node.type === 'event'){
+    resolveEventNode();
+    return;
+  }
+  if(node.type === 'treasure'){
+    messageArea.textContent = '宝物マス！レリックを選択できます';
+    showRelicSelection();
+    return;
+  }
+  startBattle(node.type);
+}
+
+function resolveEventNode(){
+  const effects = [
+    () => {
+      gameState.baseStats.baseAttack = Number(gameState.baseStats.baseAttack || 0) + 1;
+      messageArea.textContent = 'イベント: 古びた祭壇で攻撃力が +1 された';
+    },
+    () => {
+      gameState.baseStats.baseDefense = Number(gameState.baseStats.baseDefense || 0) + 1;
+      messageArea.textContent = 'イベント: 守りの祈りで防御力が +1 された';
+    },
+    () => {
+      const side = Math.random() < 0.5 ? 'left' : 'right';
+      gameState.player[side] = Math.max(1, toNum(gameState.player[side]) + 1);
+      messageArea.textContent = `イベント: ${side === 'left' ? '左手' : '右手'}の指が +1 された`;
+    }
+  ];
+  const picked = effects[rand(0, effects.length - 1)];
+  picked();
+  flashScreen(.16);
+  updateUI();
+  setTimeout(() => showMapSelection(), 650);
+}
+
+function startBattle(nodeType = 'battle'){
   if(gameState.inBossReward) return;
   // reset per-battle battle modifiers
   gameState.bossEnemyThresholdMultiplier = 1;
@@ -685,7 +802,7 @@ function startBattle(){
     baseAttack: 0,
     baseDefense: 0
   };
-  gameState.isBoss = (gameState.stage % 3 === 0);
+  gameState.isBoss = (nodeType === 'boss');
   document.body.classList.toggle('boss', gameState.isBoss);
   if(gameState.isBoss) assignBossAbility();
   assignEnemySkills();
@@ -1080,7 +1197,13 @@ function updateBossUI(){ if(!bossAbilityArea) return; if(!gameState.isBoss || !g
 
 function updateUI(){
   const pThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
-  if(gameState.isTutorial) stageInfo.textContent = 'Tutorial Battle'; else if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage}`; else stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
+  if(gameState.isTutorial){
+    stageInfo.textContent = 'Tutorial Battle';
+  } else {
+    const depthText = (Number(gameState.map.depth) >= 0) ? `${gameState.map.depth + 1}/${gameState.map.maxDepth}` : `0/${gameState.map.maxDepth}`;
+    const mode = gameState.isEndless ? 'Endless' : 'Run';
+    stageInfo.textContent = `${mode} Floor ${gameState.map.floor} - Depth ${depthText} ${gameState.isBoss ? 'BOSS' : ''}`;
+  }
   let displayPThresh = pThreshold * (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier ? gameState.playerBattleModifiers.thresholdMultiplier : 1);
   if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh} | リスキー補正: ${gameState.playerRiskyStrikeBuff >= 0 ? '+' : ''}${gameState.playerRiskyStrikeBuff || 0}`;
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
@@ -1968,7 +2091,7 @@ function checkWinLose(){
       setTimeout(()=> showTitleScreen(), 1200);
       return true;
     }
-    if(gameState.isBoss && !gameState.isEndless && gameState.stage >= gameState.maxStage){
+    if(gameState.isBoss && !gameState.isEndless && gameState.map.floor >= 3 && gameState.map.depth >= gameState.map.maxDepth - 1){
       setTimeout(()=> triggerGameClear(), 350); return true;
     }
     if(gameState.stage % RELIC_DROP_INTERVAL === 0){
@@ -1993,6 +2116,18 @@ function checkWinLose(){
     return true;
   }
   return false;
+}
+
+function completeCombatNode(){
+  const nodeType = gameState.currentNode ? gameState.currentNode.type : 'battle';
+  if(nodeType === 'battle' || nodeType === 'elite' || nodeType === 'boss'){
+    gameState.stage += 1;
+  }
+  if(gameState.map.floor >= 3 && gameState.map.depth >= gameState.map.maxDepth - 1 && gameState.currentNode && gameState.currentNode.type === 'boss'){
+    triggerGameClear();
+    return;
+  }
+  setTimeout(() => showMapSelection(), 500);
 }
 
 /* ---------- rewards / boss rewards ---------- */
@@ -2040,10 +2175,7 @@ function showRelicSelection(){
       skillSelectArea.innerHTML = '';
       updateUI();
       flashScreen(.16);
-      setTimeout(() => {
-        gameState.stage++;
-        startBattle();
-      }, 650);
+      setTimeout(() => completeCombatNode(), 650);
     };
     wrap.appendChild(btn);
   });
@@ -2085,7 +2217,7 @@ function showBaseRewardSelection(rewards){
   rewards.forEach(r => {
     const btn = document.createElement('button'); btn.className = 'skill-btn node-btn'; btn.innerHTML = `<div style="font-weight:700">${r.name}</div><small style="opacity:.9">${r.desc}</small><div style="font-size:11px;opacity:.85;margin-top:6px">${r.currentLabel ? r.currentLabel() : ''}</div>`; btn.onclick = () => {
       playSE('click', 0.6); r.apply(); messageArea.textContent = `${r.name} を獲得しました`; skillSelectArea.innerHTML = ''; updateUI(); flashScreen(.14);
-      setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
+      setTimeout(()=> { completeCombatNode(); }, 700);
     }; wrap.appendChild(btn);
   });
   skillSelectArea.appendChild(wrap);
@@ -2129,7 +2261,7 @@ function showRewardSelection(){
       if(p.isUpgrade && unlockedObj){ const cap = getCap(def.id); unlockedObj.level = Math.min(cap, (unlockedObj.level || 1) + 1); messageArea.textContent = `${def.name} を Lv${unlockedObj.level} に強化しました`; }
       else { const cap = getCap(def.id); if(unlockedObj){ unlockedObj.level = Math.min(cap, (unlockedObj.level || 1) + 1); messageArea.textContent = `${def.name} を Lv${unlockedObj.level} に強化しました`; } else { gameState.unlockedSkills.push({ id: def.id, level: 1 }); messageArea.textContent = `${def.name} をアンロックしました！`; } }
       saveUnlocked(); skillSelectArea.innerHTML = ''; flashScreen(.14);
-      setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
+      setTimeout(()=> { completeCombatNode(); }, 700);
     };
     wrap.appendChild(btn);
   });
@@ -2146,7 +2278,7 @@ function showBossRewardSelection(){
       opt.apply();
       messageArea.textContent = `${opt.name} を獲得しました`;
       gameState.bossEnemyThresholdMultiplier = 1; gameState.bossAbility = null; gameState.enemyHasThirdHand = false; updateUI(); gameState.inBossReward = false; skillSelectArea.innerHTML = ''; flashScreen(.18);
-      setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
+      setTimeout(()=> { completeCombatNode(); }, 700);
     };
     wrap.appendChild(btn);
   });
@@ -2155,7 +2287,19 @@ function showBossRewardSelection(){
 
 /* ---------- win/clear handling ---------- */
 function triggerGameClear(){ gameState.isGameClear = true; gameState.isEndless = false; updateBestStage(); showClearScreen(); }
-function handleEndlessFromClear(){ if(!clearScreen) return; if(endlessButton) playSE('click', 0.5); gameState.isEndless = true; gameState.isGameClear = false; gameState.stage = Math.max(13, gameState.stage || 13); if(clearScreen) clearScreen.style.display = 'none'; showGameScreen(); startBattle(); }
+function handleEndlessFromClear(){
+  if(!clearScreen) return;
+  if(endlessButton) playSE('click', 0.5);
+  gameState.isEndless = true;
+  gameState.isGameClear = false;
+  gameState.map.floor = Math.max(4, Number(gameState.map.floor || 4));
+  gameState.map.depth = -1;
+  gameState.map.lane = 1;
+  generateMapFloor();
+  if(clearScreen) clearScreen.style.display = 'none';
+  showGameScreen();
+  showMapSelection();
+}
 function handleRetire(){ if(!confirm('本当にリタイアしますか？\n現在の進行は失われます（BestStageは保存されます）。')) return; updateBestStage(); resetFullGameToTitle(); }
 
 /* ---------- best stage ---------- */
