@@ -164,6 +164,7 @@ const gameState = {
 let selectedHand = null;
 let equipTemp = [];
 let _overlayEl = null;
+let _criticalHalfFlashArmed = false;
 
 /* ---------- DOM ---------- */
 const titleScreen = document.getElementById('titleScreen');
@@ -1049,6 +1050,7 @@ function updateUI(){
   if(gameState.enemyHasThirdHand) updateHand('enemyThird', gameState.enemy.third || 0);
   updateEnemySkillUI(); updateBossUI();
   renderRelicList();
+  applyCriticalHalfFlash();
   if(_overlayEl && _overlayEl.dataset.owner && _overlayEl.dataset.hand) refreshOverlayContent(_overlayEl.dataset.owner, _overlayEl.dataset.hand);
 }
 
@@ -1082,10 +1084,33 @@ function updateHand(key, value){
 
 /* ---------- FX helpers ---------- */
 function flashScreen(duration = 0.18){ if(!flashLayer) return; flashLayer.classList.add('flash'); setTimeout(()=> flashLayer.classList.remove('flash'), Math.max(80, duration*1000)); }
+function flashCriticalScreen(duration = 0.3){ if(!flashLayer) return; flashLayer.classList.add('flash-critical'); setTimeout(()=> flashLayer.classList.remove('flash-critical'), Math.max(120, duration*1000)); }
 function showDamage(targetEl, val, color='#ff6b6b'){ if(!targetEl) return; const d = document.createElement('div'); d.className = 'damage'; d.textContent = (val >= 0 ? `+${val}` : `${val}`); d.style.color = color; targetEl.appendChild(d); setTimeout(()=> d.remove(), 820); }
 function showPopupText(targetEl, text, color='#fff'){ if(!targetEl) return; const d = document.createElement('div'); d.className = 'damage'; d.textContent = text; d.style.color = color; targetEl.appendChild(d); setTimeout(()=> d.remove(), 820); }
 function animateAttack(attackerEl, targetEl){ if(attackerEl) attackerEl.classList.add('attack'); if(targetEl) targetEl.classList.add('hit'); setTimeout(()=>{ if(attackerEl) attackerEl.classList.remove('attack'); if(targetEl) targetEl.classList.remove('hit'); }, 320); }
 function animateDestroy(targetEl){ if(!targetEl) return; targetEl.classList.add('destroy'); setTimeout(()=> targetEl.classList.remove('destroy'), 500); }
+function applyCriticalHalfFlash(){
+  if(gameState.inTitle || gameState.inBossReward || gameState.awaitingEquip){
+    _criticalHalfFlashArmed = false;
+    return;
+  }
+  const aliveHands = ['left', 'right'].filter(side => toNum(gameState.player[side]) > 0);
+  if(aliveHands.length !== 1){
+    _criticalHalfFlashArmed = false;
+    return;
+  }
+  const side = aliveHands[0];
+  const playerThreshold = Number(getDestroyThreshold(false, side));
+  const halfThreshold = playerThreshold / 2;
+  const value = toNum(gameState.player[side]);
+  const isCritical = Number.isFinite(halfThreshold) && halfThreshold > 0 && value <= halfThreshold;
+  if(isCritical && !_criticalHalfFlashArmed){
+    flashCriticalScreen();
+    _criticalHalfFlashArmed = true;
+    return;
+  }
+  if(!isCritical) _criticalHalfFlashArmed = false;
+}
 
 /* ---------- skill helpers ---------- */
 function getUnlockedLevel(id){ const u = (gameState.unlockedSkills || []).find(x=>x.id===id); return u ? (u.level || 1) : 0; }
@@ -1491,7 +1516,7 @@ function playerAttack(targetSide){
   const added = Math.max(0, rawAdded - defense);
   if(chainMultiplier > 1) consumeChainMultiplier(false);
 
-  showDamage(targetEl, baseAtk);
+  showDamage(targetEl, added);
 
   // apply addition to the enemy hand
   const curEnemy = toNum(gameState.enemy[targetSide]);
@@ -1765,7 +1790,7 @@ function enemyTurn(){
     if(absorbed > 0) showPopupText(targetEl, `Shield -${absorbed}`, '#ffd166');
   }
 
-  showDamage(targetEl, attackValue, '#ffb86b');
+  showDamage(targetEl, remainingAttack, '#ffb86b');
 
   addToHand(false, to, remainingAttack);
 
