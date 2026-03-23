@@ -47,7 +47,10 @@ const RELIC_POOL = [
   { id:'bloodyAxe', name:'🪓 血濡れた斧', desc:'ディスラプトで指を0まで減らせる' },
   { id:'reinforcedArmor', name:'🛡 強化装甲', desc:'基礎攻撃・基礎防御・指の最大値がそれぞれ+2' },
   { id:'gigantism', name:'🫀 肥大化', desc:'自身の指の値が増えた分だけシールドを得る' },
-  { id:'panic', name:'😱 恐慌', desc:'相手の手を破壊時、相手全体に呪い+2と毒2ターンを付与' }
+  { id:'panic', name:'😱 恐慌', desc:'相手の手を破壊時、相手全体に呪い+2と毒2ターンを付与' },
+  { id:'doubleHit', name:'🥊 連撃', desc:'攻撃後、そのダメージの半分でもう一度追撃する' },
+  { id:'criticalChip', name:'🎯 クリティカルチップ', desc:'30%の確率で攻撃ダメージが2倍になる' },
+  { id:'ultraDurableCore', name:'🧱 超耐久コア', desc:'自身の指の最大値が1.5倍になる' }
 ];
 
 /* Boss abilities */
@@ -1488,7 +1491,11 @@ function playerAttack(targetSide){
   }
 
   let rawAdded = baseAtk * multiplier;
-  const added = Math.max(0, rawAdded - defense);
+  let added = Math.max(0, rawAdded - defense);
+  if(hasRelic('criticalChip') && Math.random() < 0.3){
+    added = added * 2;
+    showPopupText(targetEl, 'CRITICAL x2', '#ffd166');
+  }
   if(chainMultiplier > 1) consumeChainMultiplier(false);
 
   showDamage(targetEl, baseAtk);
@@ -1535,6 +1542,21 @@ function playerAttack(targetSide){
     inflictCurseMarks(true, keys, 2);
     keys.forEach(k => inflictPoison(true, k, 2));
     messageArea.textContent = '恐慌発動！敵全体に 呪い+2 / 毒2T';
+  }
+
+  if(hasRelic('doubleHit') && added > 0 && toNum(gameState.enemy[targetSide]) > 0){
+    const followUp = Math.floor(added / 2);
+    if(followUp > 0){
+      const beforeFollowUp = toNum(gameState.enemy[targetSide]);
+      let afterFollowUp = beforeFollowUp + followUp;
+      if(!Number.isFinite(afterFollowUp)) afterFollowUp = 0;
+      gameState.enemy[targetSide] = afterFollowUp;
+      showPopupText(targetEl, `追撃 +${followUp}`, '#ffcf7a');
+      const chainedDestroyed = detectDestroyTargets().filter(d => d.ownerIsEnemy);
+      if(chainedDestroyed.length > 0){
+        processDestroyedList(chainedDestroyed);
+      }
+    }
   }
 
   // clear selection and advance turn
@@ -1963,6 +1985,10 @@ function applyRelicEffect(relicId){
     gameState.baseStats.baseDefense = Number(gameState.baseStats.baseDefense || 0) + 2;
     gameState.baseStats.playerThreshold = Number(gameState.baseStats.playerThreshold || 5) + 2;
     gameState.baseStats.maxFinger = Number(gameState.baseStats.maxFinger || 5) + 2;
+  }
+  if(relicId === 'ultraDurableCore'){
+    gameState.baseStats.playerThreshold = Math.max(1, Math.floor(Number(gameState.baseStats.playerThreshold || 5) * 1.5));
+    gameState.baseStats.maxFinger = Math.max(1, Math.floor(Number(gameState.baseStats.maxFinger || 5) * 1.5));
   }
 }
 function getRelicCandidates(){
