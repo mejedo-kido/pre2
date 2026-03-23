@@ -4,7 +4,7 @@
 const BEST_KEY = 'fd_best_stage_v1';
 const EQUIP_SLOTS = 3;
 const MAX_SKILL_LEVEL = 3;
-const SKILL_LEVEL_CAP = { pierce: 2, possession: 1, split: 1 };
+const SKILL_LEVEL_CAP = { pierce: 2, possession: 1, revenge: 1 };
 const HARD_CAP = 99;
 const RELIC_DROP_INTERVAL = 9;
 
@@ -502,7 +502,7 @@ function rollRiskyStrikeBuff(isEnemy){
     else gameState.playerRiskyStrikeBuff = 0;
     return;
   }
-  const amount = rand(-4 * level, 4 * level);
+  const amount = rand(-2 * level, 4 * level);
   if(isEnemy) gameState.enemyRiskyStrikeBuff = amount;
   else gameState.playerRiskyStrikeBuff = amount;
 }
