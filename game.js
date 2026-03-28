@@ -161,10 +161,7 @@ const gameState = {
   tutorialBattleStep: 0,
   relics: [],
   playerPoisonPower: { left:1, right:1 },
-  enemyPoisonPower: { left:1, right:1, third:1 },
-  mapNodes: [],
-  awaitingMapChoice: false,
-  currentNodeType: null
+  enemyPoisonPower: { left:1, right:1, third:1 }
 };
 
 let selectedHand = null;
@@ -574,7 +571,7 @@ function startGame(){
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.enemyBase = { baseThreshold:5, baseAttack:0, baseDefense:0 };
   gameState.inBossReward = false;
-  gameState.stage = 0;
+  gameState.stage = 1;
   gameState.playerTurn = true;
   gameState.pendingActiveUse = null;
   gameState.doubleMultiplier = 1;
@@ -601,93 +598,7 @@ function startGame(){
   if(messageArea) messageArea.textContent = '';
   if(enemySkillArea) enemySkillArea.innerHTML = '敵スキル: —';
   seedInitialUnlocks();
-  showMapSelection();
-}
-
-function getNodeTypeLabel(type){
-  if(type === 'battle') return '⚔ 戦闘マス';
-  if(type === 'event') return '🎲 イベントマス';
-  if(type === 'boss') return '👑 ボスマス';
-  return '—';
-}
-
-function generateMapNodes(nextStage){
-  if(nextStage % 3 === 0) return [{ type:'boss', label:'👑 ボスマス', desc:'強敵との決戦。勝利で特別報酬。' }];
-  const base = ['battle','battle','event'];
-  if(Math.random() < 0.22) base[Math.floor(Math.random() * base.length)] = 'boss';
-  return base.map(type => ({
-    type,
-    label: getNodeTypeLabel(type),
-    desc: type === 'battle' ? '通常戦闘。勝利でスキル報酬。' : (type === 'event' ? 'ランダムイベント。戦闘なし。' : '強敵戦。勝利で基礎能力報酬。')
-  }));
-}
-
-function showMapSelection(){
-  gameState.awaitingMapChoice = true;
-  gameState.currentNodeType = null;
-  const nextStage = (gameState.stage || 0) + 1;
-  const nodes = generateMapNodes(nextStage);
-  gameState.mapNodes = nodes;
-  skillSelectArea.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'map-grid';
-  nodes.forEach((node, idx) => {
-    const btn = document.createElement('button');
-    btn.className = `skill-btn map-node map-${node.type}`;
-    btn.innerHTML = `<div class="map-node-title">${node.label}</div><small>${node.desc}</small>`;
-    btn.onclick = () => {
-      playSE('click', 0.5);
-      selectMapNode(idx);
-    };
-    wrap.appendChild(btn);
-  });
-  skillSelectArea.appendChild(wrap);
-  messageArea.textContent = `次の進行先を選択してください（Stage ${nextStage}）`;
-  updateUI();
-}
-
-function selectMapNode(index){
-  if(!gameState.awaitingMapChoice) return;
-  const node = (gameState.mapNodes || [])[index];
-  if(!node) return;
-  gameState.awaitingMapChoice = false;
-  gameState.currentNodeType = node.type;
-  gameState.stage = (gameState.stage || 0) + 1;
-  skillSelectArea.innerHTML = '';
-  if(node.type === 'event'){
-    showEventNode();
-    return;
-  }
   startBattle();
-}
-
-function showEventNode(){
-  const events = [
-    { name:'⚔ 鍛錬', desc:'基礎攻撃 +1', apply:()=> { gameState.baseStats.baseAttack = Number(gameState.baseStats.baseAttack || 0) + 1; } },
-    { name:'🛡 守護', desc:'基礎防御 +1', apply:()=> { gameState.baseStats.baseDefense = Number(gameState.baseStats.baseDefense || 0) + 1; } },
-    { name:'💎 成長', desc:'指の最大値 +1', apply:()=> { gameState.baseStats.playerThreshold = Number(gameState.baseStats.playerThreshold || 5) + 1; gameState.baseStats.maxFinger = Number(gameState.baseStats.maxFinger || 5) + 1; } }
-  ];
-  const picks = events.sort(() => Math.random() - 0.5).slice(0, 2);
-  skillSelectArea.innerHTML = '';
-  const wrap = document.createElement('div');
-  wrap.className = 'skill-choices';
-  picks.forEach(ev => {
-    const btn = document.createElement('button');
-    btn.className = 'skill-btn node-btn';
-    btn.innerHTML = `<div style="font-weight:700">${ev.name}</div><small>${ev.desc}</small>`;
-    btn.onclick = () => {
-      playSE('skill', 0.5);
-      ev.apply();
-      messageArea.textContent = `イベント発生: ${ev.name} を獲得`;
-      skillSelectArea.innerHTML = '';
-      updateUI();
-      setTimeout(() => showMapSelection(), 650);
-    };
-    wrap.appendChild(btn);
-  });
-  skillSelectArea.appendChild(wrap);
-  messageArea.textContent = 'イベントマス: 効果を1つ選択してください';
-  updateUI();
 }
 
 function startBattle(){
@@ -738,7 +649,7 @@ function startBattle(){
     baseAttack: 0,
     baseDefense: 0
   };
-  gameState.isBoss = (gameState.currentNodeType === 'boss') || (gameState.stage % 3 === 0);
+  gameState.isBoss = (gameState.stage % 3 === 0);
   document.body.classList.toggle('boss', gameState.isBoss);
   if(gameState.isBoss) assignBossAbility();
   assignEnemySkills();
@@ -1133,10 +1044,7 @@ function updateBossUI(){ if(!bossAbilityArea) return; if(!gameState.isBoss || !g
 
 function updateUI(){
   const pThreshold = (gameState.baseStats && Number.isFinite(Number(gameState.baseStats.playerThreshold))) ? Number(gameState.baseStats.playerThreshold) : 5;
-  if(gameState.isTutorial) stageInfo.textContent = 'Tutorial Battle';
-  else if(gameState.awaitingMapChoice) stageInfo.textContent = `Map Select (Next: Stage ${(gameState.stage || 0) + 1})`;
-  else if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage} | ${getNodeTypeLabel(gameState.currentNodeType)}`;
-  else stageInfo.textContent = `Stage ${gameState.stage} | ${getNodeTypeLabel(gameState.currentNodeType)}`;
+  if(gameState.isTutorial) stageInfo.textContent = 'Tutorial Battle'; else if(gameState.isEndless) stageInfo.textContent = `Endless Stage ${gameState.stage}`; else stageInfo.textContent = `Stage ${gameState.stage} ${gameState.isBoss ? 'BOSS' : ''}`;
   let displayPThresh = pThreshold * (gameState.playerBattleModifiers && gameState.playerBattleModifiers.thresholdMultiplier ? gameState.playerBattleModifiers.thresholdMultiplier : 1);
   if(thresholdInfo) thresholdInfo.textContent = `Threshold: ${displayPThresh} | リスキー補正: ${gameState.playerRiskyStrikeBuff >= 0 ? '+' : ''}${gameState.playerRiskyStrikeBuff || 0}`;
   skillInfo.textContent = gameState.equippedSkills && gameState.equippedSkills.length ? 'Equipped: ' + gameState.equippedSkills.map(s=>s.name+' Lv'+s.level).join(', ') : 'Equipped: —';
@@ -2120,7 +2028,8 @@ function showRelicSelection(){
       updateUI();
       flashScreen(.16);
       setTimeout(() => {
-        showMapSelection();
+        gameState.stage++;
+        startBattle();
       }, 650);
     };
     wrap.appendChild(btn);
@@ -2163,7 +2072,7 @@ function showBaseRewardSelection(rewards){
   rewards.forEach(r => {
     const btn = document.createElement('button'); btn.className = 'skill-btn node-btn'; btn.innerHTML = `<div style="font-weight:700">${r.name}</div><small style="opacity:.9">${r.desc}</small><div style="font-size:11px;opacity:.85;margin-top:6px">${r.currentLabel ? r.currentLabel() : ''}</div>`; btn.onclick = () => {
       playSE('click', 0.6); r.apply(); messageArea.textContent = `${r.name} を獲得しました`; skillSelectArea.innerHTML = ''; updateUI(); flashScreen(.14);
-      setTimeout(()=> { showMapSelection(); }, 700);
+      setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
     }; wrap.appendChild(btn);
   });
   skillSelectArea.appendChild(wrap);
@@ -2207,7 +2116,7 @@ function showRewardSelection(){
       if(p.isUpgrade && unlockedObj){ const cap = getCap(def.id); unlockedObj.level = Math.min(cap, (unlockedObj.level || 1) + 1); messageArea.textContent = `${def.name} を Lv${unlockedObj.level} に強化しました`; }
       else { const cap = getCap(def.id); if(unlockedObj){ unlockedObj.level = Math.min(cap, (unlockedObj.level || 1) + 1); messageArea.textContent = `${def.name} を Lv${unlockedObj.level} に強化しました`; } else { gameState.unlockedSkills.push({ id: def.id, level: 1 }); messageArea.textContent = `${def.name} をアンロックしました！`; } }
       saveUnlocked(); skillSelectArea.innerHTML = ''; flashScreen(.14);
-      setTimeout(()=> { showMapSelection(); }, 700);
+      setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
     };
     wrap.appendChild(btn);
   });
@@ -2224,7 +2133,7 @@ function showBossRewardSelection(){
       opt.apply();
       messageArea.textContent = `${opt.name} を獲得しました`;
       gameState.bossEnemyThresholdMultiplier = 1; gameState.bossAbility = null; gameState.enemyHasThirdHand = false; updateUI(); gameState.inBossReward = false; skillSelectArea.innerHTML = ''; flashScreen(.18);
-      setTimeout(()=> { showMapSelection(); }, 700);
+      setTimeout(()=> { gameState.stage++; startBattle(); }, 700);
     };
     wrap.appendChild(btn);
   });
