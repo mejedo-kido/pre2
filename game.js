@@ -282,7 +282,7 @@ function playSE(name, volume = 0.6){
 
 /* ---------- utils & persistence ---------- */
 const rand = (min,max) => Math.floor(Math.random()*(max-min+1))+min;
-function toNum(v){ const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function toNum(v){ const n = Number(v); return Number.isFinite(n) ? Math.trunc(n) : 0; }
 function saveUnlocked(){ /* パーマデス仕様: スキル持ち越しなし */ }
 function loadUnlocked(){ return null; }
 function loadBest(){ try { const b = Number(localStorage.getItem(BEST_KEY)); return Number.isFinite(b) && b > 0 ? b : 1; } catch(e){ return 1; } }
@@ -495,15 +495,15 @@ function tickSkillCooldowns(){
 function safeDecrease(cur, amount){ cur = toNum(cur); if(cur === 0) return 0; let newVal = cur - amount; if(newVal < 1) newVal = 1; return newVal; }
 function safeDecreaseWithFloor(cur, amount, floor = 1){ cur = toNum(cur); if(cur <= floor) return floor; let newVal = cur - amount; if(newVal < floor) newVal = floor; return newVal; }
 function addToHand(ownerIsEnemy, side, amount){
-  const a = Number(amount || 0);
+  const a = toNum(amount);
   if(a <= 0) return;
   if(ownerIsEnemy){
-    gameState.enemy[side] = Math.min(HARD_CAP, toNum(gameState.enemy[side]) + a);
+    gameState.enemy[side] = Math.trunc(Math.min(HARD_CAP, toNum(gameState.enemy[side]) + a));
     return;
   }
-  gameState.player[side] = Math.min(HARD_CAP, toNum(gameState.player[side]) + a);
+  gameState.player[side] = Math.trunc(Math.min(HARD_CAP, toNum(gameState.player[side]) + a));
   if(hasRelic('gigantism')){
-    gameState.playerShield = Math.min(HARD_CAP, Number(gameState.playerShield || 0) + a);
+    gameState.playerShield = Math.trunc(Math.min(HARD_CAP, Number(gameState.playerShield || 0) + a));
   }
 }
 function getCurseInflictAmount(baseAmount){
@@ -627,6 +627,7 @@ function initGame(){
 function startGame(){
   gameState.selectedClass = null;
   resetClassBonuses();
+  gameState.relics = [];
   gameState.baseStats = { playerThreshold:5, enemyThreshold:5, baseAttack:0, baseDefense:0, maxFinger:5 };
   gameState.enemyBase = { baseThreshold:5, baseAttack:0, baseDefense:0 };
   gameState.inBossReward = false;
@@ -1311,7 +1312,7 @@ function getDestroyThreshold(attackerIsPlayer = true, targetSide = null){
   }
   if(!Number.isFinite(threshold)) threshold = 5;
   threshold = Math.max(1, threshold);
-  return threshold;
+  return Math.trunc(threshold);
 }
 
 /* ---------- regen ---------- */
@@ -1583,7 +1584,7 @@ function playerAttack(targetSide){
   animateAttack(attackerEl, targetEl);
 
   let baseAtk = toNum(gameState.player[attackerKey]);
-  baseAtk += computePlayerAttackBonus(attackerKey);
+  baseAtk = Math.trunc(baseAtk + computePlayerAttackBonus(attackerKey));
 
   const defense = computeDefenseForTarget(true);
 
@@ -1597,18 +1598,18 @@ function playerAttack(targetSide){
   }
 
   let rawAdded = baseAtk * multiplier;
-  let added = Math.max(0, rawAdded - defense);
+  let added = Math.trunc(Math.max(0, rawAdded - defense));
   if(hasRelic('criticalChip') && Math.random() < 0.3){
-    added = added * 2;
+    added = Math.trunc(added * 2);
     showPopupText(targetEl, 'CRITICAL x2', '#ffd166');
   }
   if(chainMultiplier > 1) consumeChainMultiplier(false);
 
-  showDamage(targetEl, baseAtk);
+  showDamage(targetEl, Math.trunc(baseAtk));
 
   // apply addition to the enemy hand
   const curEnemy = toNum(gameState.enemy[targetSide]);
-  let newVal = curEnemy + added;
+  let newVal = Math.trunc(curEnemy + added);
   if(!Number.isFinite(newVal)) newVal = 0;
   gameState.enemy[targetSide] = newVal;
   if(hasEquipped('poisonHand')){
@@ -1654,7 +1655,7 @@ function playerAttack(targetSide){
     const followUp = Math.floor(added / 2);
     if(followUp > 0){
       const beforeFollowUp = toNum(gameState.enemy[targetSide]);
-      let afterFollowUp = beforeFollowUp + followUp;
+      let afterFollowUp = Math.trunc(beforeFollowUp + followUp);
       if(!Number.isFinite(afterFollowUp)) afterFollowUp = 0;
       gameState.enemy[targetSide] = afterFollowUp;
       showPopupText(targetEl, `追撃 +${followUp}`, '#ffcf7a');
@@ -1740,7 +1741,10 @@ function enemyTurn(){
   const alivePlayer = ['left','right'].filter(s => toNum(gameState.player[s]) > 0 && !isHandExcluded(false, s));
   const enemyKeys = gameState.enemyHasThirdHand ? ['left','right','third'] : ['left','right'];
   const aliveEnemy = enemyKeys.filter(s => toNum(gameState.enemy[s]) > 0 && !isHandExcluded(true, s));
-  if(alivePlayer.length === 0 || aliveEnemy.length === 0) return;
+  if(alivePlayer.length === 0 || aliveEnemy.length === 0){
+    checkWinLose();
+    return;
+  }
 
  let enemyTurnShouldEnd = false;
  (gameState.enemySkills || []).forEach(skill => {
@@ -1874,13 +1878,13 @@ function enemyTurn(){
   const playerDefMul = (gameState.playerBattleModifiers && gameState.playerBattleModifiers.defenseMultiplier) ? gameState.playerBattleModifiers.defenseMultiplier : 1;
   const classDefMul = getPlayerDefenseMultiplier();
   const defense = (computeDefenseForTarget(false) + (baseDef * playerDefMul)) * classDefMul;
-  attackValue = Math.max(0, attackValue - defense);
+  attackValue = Math.trunc(Math.max(0, attackValue - defense));
 
   let multiplier = gameState.enemyDoubleMultiplier || 1;
   const enemyChainMultiplier = getChainMultiplier(true);
   if(enemyChainMultiplier > 1) multiplier *= enemyChainMultiplier;
   gameState.enemyDoubleMultiplier = 1;
-  attackValue = attackValue * multiplier;
+  attackValue = Math.trunc(attackValue * multiplier);
   if(enemyChainMultiplier > 1) consumeChainMultiplier(true);
 
   gameState.enemyTurnBuffs.forEach(tb => { if(tb.payload && tb.payload.type === 'teamPower') attackValue += tb.payload.value; });
@@ -1890,7 +1894,7 @@ function enemyTurn(){
   if(gameState.playerShield && gameState.playerShield > 0){
     const absorbed = Math.min(remainingAttack, gameState.playerShield);
     gameState.playerShield -= absorbed;
-    remainingAttack = Math.max(0, remainingAttack - absorbed);
+    remainingAttack = Math.trunc(Math.max(0, remainingAttack - absorbed));
     if(absorbed > 0) showPopupText(targetEl, `Shield -${absorbed}`, '#ffd166');
   }
 
@@ -1944,6 +1948,7 @@ function enemyTurn(){
   if(gameState.playerSkipAttackTurns && gameState.playerSkipAttackTurns > 0){
     gameState.playerSkipAttackTurns = Math.max(0, gameState.playerSkipAttackTurns - 1);
     gameState.playerTurn = false;
+    if(checkWinLose()) return;
     messageArea.textContent = 'フリーズ効果：あなたの攻撃ターンをスキップしました';
     updateUI();
     setTimeout(()=> enemyTurn(), 650);
