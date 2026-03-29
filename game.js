@@ -12,12 +12,12 @@ const RELIC_DROP_INTERVAL = 9;
 const SKILL_POOL = [
   { id:'power', type:'passive', baseDesc:'攻撃力 +level', name:'💥 パワーアップ', rarity:'rare' },
   { id:'guard', type:'passive', baseDesc:'防御力 +level', name:'🛡 ガード', rarity:'common' },
-  { id:'berserk', type:'passive', baseDesc:'自分の手が(指の最大値-1)のとき攻撃UP', name:'⚡ バーサーク', rarity:'common' },
+  { id:'berserk', type:'passive', baseDesc:'自分の手がピンチの時攻撃UP', name:'⚡ バーサーク', rarity:'common' },
   { id:'regen', type:'passive', baseDesc:'毎ターン終了時にランダムな手を1つ -1', name:'💚 リジェネ', rarity:'common' },
   { id:'double', type:'active', baseDesc:'次の攻撃が大幅に上昇', name:'⛏ ダブルストライク', rarity:'epic' },
   { id:'heal', type:'active', baseDesc:'自分の手を大回復', name:'✨ ヒール', rarity:'rare' },
   { id:'pierce', type:'passive', baseDesc:'相手の指の最大値を減らす', name:'🔩 ピアス', rarity:'epic' },
-  { id:'chain', type:'combo', baseDesc:'手を破壊した次の攻撃が( level + 1 )倍', name:'🔗 チェイン', rarity:'common' },
+  { id:'chain', type:'combo', baseDesc:'手を破壊した次の攻撃が大幅アップ', name:'🔗 チェイン', rarity:'common' },
   { id:'fortify', type:'turn', baseDesc:'自分にシールドを付与', name:'🏰 フォーティファイ', rarity:'rare' },
   { id:'revenge', type:'event', baseDesc:'破壊されるとき一度だけ耐え、最大値-1で踏みとどまる', name:'🔥 リベンジ', rarity:'rare' },
   { id:'disrupt', type:'active', baseDesc:'敵の手を減らす（最小1）', name:'🪓 ディスラプト', rarity:'common' },
@@ -25,17 +25,17 @@ const SKILL_POOL = [
   { id:'counter', type:'event', baseDesc:'攻撃を受けた時、相手の手にもダメージ', name:'↺ カウンター', rarity:'common' },
 
   // new skills
-  { id:'haisuinojin', type:'active', baseDesc:'選択した手を(指の最大値-1)にし、防御バフ+level', name:'⚔️ 背水の陣', rarity:'rare' },
+  { id:'haisuinojin', type:'active', baseDesc:'選択した手を大幅増加し、防御バフ+level', name:'⚔️ 背水の陣', rarity:'rare' },
   { id:'pumpUp', type:'active', baseDesc:'自身の手を増やす', name:'💪 パンプアップ', rarity:'common' },
   { id:'possession', type:'passive', baseDesc:'戦闘開始時に左手を失い、基礎能力を2倍', name:'🕯 ポゼッション', rarity:'epic' },
-  { id:'split', type:'active', baseDesc:'片手のみ生存かつ値≥2の時、その手を半分にして両手にする', name:'✂ 分割', rarity:'common' },
+  { id:'split', type:'active', baseDesc:'片手の時、その手を半分にして両手にする', name:'✂ 分割', rarity:'common' },
   { id:'freeze', type:'active', baseDesc:'相手の次のターンの攻撃を封じる', name:'🧊 フリーズ', rarity:'rare' },
   { id:'distribute', type:'active', baseDesc:'自分の左右の値を均等に分配する', name:'⚖️ 分配', rarity:'common' },
   { id:'poisonHand', type:'passive', baseDesc:'攻撃時に相手へ毒をlevelターン付与（毒:ターン終了時+1）', name:'☠️ 毒手', rarity:'rare' },
-  { id:'overheat', type:'active', baseDesc:'手を1つ選び、その値を最大値×(2+level)にする。攻撃後、選んだ手に除外99ターン', name:'🔥 オーバーヒート', rarity:'rare' },
-  { id:'riskyStrike', type:'passive', baseDesc:'毎ターン、攻撃バフが -4×level ～ +4×level でランダム変動（1ターン）', name:'🎲 リスキーストライク', rarity:'rare' },
+  { id:'overheat', type:'active', baseDesc:'手を1つ選び、爆発的に増やす。攻撃後、選んだ手に除外99ターン', name:'🔥 オーバーヒート', rarity:'rare' },
+  { id:'riskyStrike', type:'passive', baseDesc:'毎ターン、攻撃バフがランダム変動', name:'🎲 リスキーストライク', rarity:'rare' },
   { id:'hades', type:'active', baseDesc:'相手のランダムな手に除外をlevelターン付与', name:'💀 ハーデス', rarity:'epic' },
-  { id:'curse', type:'active', baseDesc:'相手の両手に呪いマークを付与（呪いマーク数だけ最大値-1）', name:'🕸 カース', rarity:'common' }
+  { id:'curse', type:'active', baseDesc:'相手の両手に呪いマークを付与（呪いマーク:最大値-1）', name:'🕸 カース', rarity:'common' }
 ];
 
 const RELIC_POOL = [
@@ -57,7 +57,7 @@ const CHARACTER_POOL = [
   { id:'kiara', name:'キアラ', desc:'基礎ステータス上昇量2倍' },
   { id:'arca', name:'アルカ', desc:'ランダムにレリックを1つ獲得' },
   { id:'basque', name:'バスク', desc:'スキル選択数 +1' },
-  { id:'sohka', name:'ソーカ', desc:'スキルの最大レベルを5にする（固有キャップ付きは無効）' },
+  { id:'sohka', name:'ソーカ', desc:'スキルの最大レベルを5にする（一部例外あり）' },
   { id:'mai', name:'マイ', desc:'自分の指の最大値と防御力が常に1.5倍' }
 ];
 
